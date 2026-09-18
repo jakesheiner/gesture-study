@@ -1,0 +1,9 @@
+# participant data never goes in the repo
+data/
+*.json
+
+# kept private
+gesture-elicitation-webapp-spec.md
+
+.DS_Store
+.claude/

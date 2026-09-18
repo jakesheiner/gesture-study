@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gesture Review</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  body { display: grid; grid-template-columns: 260px 1fr; height: 100vh; overflow: hidden; font-size: 15px; }
+  aside { border-right: 1px solid var(--line); overflow-y: auto; padding: 18px 12px; display: flex; flex-direction: column; gap: 14px; }
+  aside h1 { font-size: 18px; margin: 0 6px; }
+  .load { display: block; text-align: center; padding: 10px; border-radius: 12px; border: 1.5px dashed var(--line); color: var(--muted); cursor: pointer; }
+  .load input { display: none; }
+  .sess h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 6px 6px 4px; font-weight: 600; }
+  .trial-btn {
+    display: flex; justify-content: space-between; gap: 8px; width: 100%; text-align: left; padding: 7px 10px;
+    border-radius: 8px; background: none; color: var(--ink); font-weight: 400; font-size: 14px;
+  }
+  .trial-btn:hover { background: rgba(0,0,0,.04); }
+  .trial-btn.on { background: var(--ink); color: #fff; }
+  .trial-btn small { opacity: .55; font-variant-numeric: tabular-nums; }
+
+  main { overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .empty { margin: auto; color: var(--muted); text-align: center; max-width: 380px; }
+  .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .head h2 { margin: 0; font-size: 22px; }
+  .head span { color: var(--muted); }
+  .views { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; height: 44vh; min-height: 260px; }
+  .views .stage-wrap, .draw-wrap { position: relative; background: #fff; border-radius: 14px; overflow: hidden; }
+  .draw-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .tag { position: absolute; left: 12px; top: 10px; font-size: 12px; color: var(--muted); z-index: 1; }
+
+  .transport { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .transport button { padding: 8px 16px; font-size: 14px; }
+  .transport input[type=range] { flex: 1; min-width: 200px; accent-color: var(--ink); }
+  .time { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 110px; }
+  .opts { display: flex; gap: 16px; flex-wrap: wrap; color: #48484a; }
+  .opts label { display: flex; align-items: center; gap: 6px; }
+  select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
+
+  .chart-wrap { position: relative; height: 150px; background: #fff; border-radius: 14px; }
+  .chart-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+  th, td { text-align: right; padding: 5px 12px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; }
+  tr.cleared td { color: var(--muted); text-decoration: line-through; }
+  .legend { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+  .legend i { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #2f55d4, #9b4dca, #f76707); }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Gesture review</h1>
+  <label class="load">Load export JSON…<input type="file" id="files" accept=".json,application/json" multiple></label>
+  <div id="list"></div>
+</aside>
+<main id="main">
+  <div class="empty" id="empty">Load one or more JSON files exported from the study app (or drop them anywhere on this page). Each trial replays in real time next to the clip, synced to what the participant was watching.</div>
+  <div id="viewer" style="display:none">
+    <div class="head"><h2 id="title"></h2><span id="meta"></span></div>
+    <div class="views">
+      <div class="stage-wrap" id="stage-wrap"><span class="tag">Reference clip, as the participant saw it</span><div class="stage" id="stage"></div></div>
+      <div class="draw-wrap" id="draw-wrap"><span class="tag">Drawing</span><canvas id="draw"></canvas></div>
+    </div>
+    <div class="transport">
+      <button id="play">Play</button>
+      <button class="secondary" id="to-stroke">Jump to first stroke</button>
+      <input type="range" id="scrub" min="0" max="1000" step="1" value="0">
+      <span class="time" id="time"></span>
+    </div>
+    <div class="opts">
+      <label>Speed <select id="rate"><option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+      <label><input type="checkbox" id="by-speed" checked> Colour by speed</label>
+      <label><input type="checkbox" id="ghost" checked> Ghost of full drawing</label>
+      <label><input type="checkbox" id="show-cleared"> Show cleared strokes</label>
+      <span class="legend"><span>slow</span><i></i><span>fast</span></span>
+    </div>
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    <table id="strokes"></table>
+  </div>
+</main>
+<script src="clips.js"></script>
+<script src="review.js"></script>
+</body>
+</html>

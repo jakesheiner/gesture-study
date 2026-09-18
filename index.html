@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Gesture Study">
+<meta name="theme-color" content="#f3f2ee">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Gesture Study</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="kiosk">
+
+<!-- Researcher setup -->
+<section class="screen" id="entry">
+  <form class="panel" id="entry-form">
+    <h1>Gesture study</h1>
+    <label class="text">Participant code or name
+      <input id="subject" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+    </label>
+    <fieldset>
+      <legend>Clip blocks</legend>
+      <label class="check-row"><input type="checkbox" name="block" value="primitive" checked> Simple shapes <small data-count="primitive"></small></label>
+      <label class="check-row"><input type="checkbox" name="block" value="ui" checked> UI elements <small data-count="ui"></small></label>
+      <label class="check-row"><input type="checkbox" id="randomize" checked> Randomize order <small>block order + clips within each block</small></label>
+    </fieldset>
+    <div class="actions"><button type="submit">Start session</button></div>
+    <div class="footer"><span id="stored"></span><button type="button" class="link" id="export-all" hidden>Export all</button></div>
+  </form>
+</section>
+
+<!-- Hand-off: what the participant reads -->
+<section class="screen" id="intro" hidden>
+  <div class="panel">
+    <h1>Thanks for helping out</h1>
+    <p class="big">You'll watch a series of short animations. For each one, draw a gesture you would use to describe that motion to someone else, like a collaborator or an AI tool.</p>
+    <p>There are no right answers. Draw while it plays or after, and use as many strokes as you need. Tap <b>Next</b> when you're happy with your drawing.</p>
+    <div class="actions"><button id="begin">Begin</button></div>
+  </div>
+</section>
+
+<section class="screen" id="trial" hidden>
+  <div class="trial-top">
+    <div class="progress"><div class="progress-bar"><i id="progress-fill"></i></div><span id="progress-text"></span></div>
+  </div>
+  <div class="stage-wrap" id="stage-wrap">
+    <div class="stage" id="stage"></div>
+    <button class="replay" id="replay">↺ Replay</button>
+  </div>
+  <div class="canvas-wrap" id="canvas-wrap">
+    <div class="canvas-hint" id="hint">Draw here</div>
+    <canvas id="canvas"></canvas>
+  </div>
+  <div class="trial-bottom">
+    <button class="secondary" id="clear" disabled>Clear</button>
+    <button id="next" disabled>Next</button>
+  </div>
+</section>
+
+<section class="screen" id="end" hidden>
+  <div class="panel">
+    <h1>All done — thank you!</h1>
+    <p class="big">Please hand the iPad back to the researcher.</p>
+    <div class="actions" style="margin-top:40px">
+      <button id="export" disabled>Export data</button>
+      <button class="secondary" id="new-session">New session</button>
+    </div>
+    <p id="export-status" style="color:var(--muted);font-size:15px"></p>
+  </div>
+</section>
+
+<script src="clips.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
