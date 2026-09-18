@@ -3,6 +3,7 @@ const $ = s => document.querySelector(s);
 const CLIP_BY_ID = Object.fromEntries(CLIPS.map(c => [c.id, c]));
 const SPEED_WINDOW_MS = 12;   // ± window for smoothed speed
 
+const off = s => s.cleared || s.palm;   // not shown to the participant
 const sessions = new Map();   // session_id → { session, trials }
 let cur = null;               // { trial, strokes (with derived speed), duration, box, vmax }
 let t = 0, playing = false, lastFrame = 0;
@@ -36,7 +37,7 @@ function renderList() {
     for (const tr of trials) {
       const b = document.createElement('button');
       b.className = 'trial-btn';
-      const n = tr.strokes.filter(s => !s.cleared).length;
+      const n = tr.strokes.filter(s => !off(s)).length;
       b.innerHTML = `<span>${tr.order_index + 1}. ${esc(CLIP_BY_ID[tr.clip_id]?.label ?? tr.clip_id)}</span><small>${n}</small>`;
       b.onclick = () => { document.querySelectorAll('.trial-btn.on').forEach(x => x.classList.remove('on')); b.classList.add('on'); open(session, tr); };
       el.append(b);
@@ -95,7 +96,7 @@ function open(session, trial) {
 
   if (clip) player.load(clip); else $('#stage').innerHTML = '';
   const strokes = trial.strokes.map(withSpeed);
-  const speeds = strokes.filter(s => !s.cleared).flatMap(s => s.speed).sort((a, b) => a - b);
+  const speeds = strokes.filter(s => !off(s)).flatMap(s => s.speed).sort((a, b) => a - b);
   const lastEnd = Math.max(0, ...strokes.map(s => s.end_ms ?? s.start_ms));
   cur = {
     trial, clip, strokes,
@@ -182,7 +183,7 @@ function drawStrokes() {
 
   dctx.lineCap = dctx.lineJoin = 'round';
   const bySpeed = $('#by-speed').checked;
-  const visible = cur.strokes.filter(st => $('#show-cleared').checked || !st.cleared);
+  const visible = cur.strokes.filter(st => $('#show-cleared').checked || !off(st));
   const X = x => ox + x * s, Y = y => oy + y * s;
   const width = p => (p.pointerType === 'pen' ? 1.5 + p.pressure * 5 : 3.5) * Math.max(.6, s);
 
@@ -197,7 +198,7 @@ function drawStrokes() {
     while (n < st.points.length && st.points[n].t <= local) n++;
     for (let i = 1; i < n; i++) {
       const a = st.points[i - 1], b = st.points[i];
-      dctx.strokeStyle = st.cleared ? '#c7c7cc' : bySpeed ? speedColor(st.speed[i], cur.vmax) : '#1d1d1f';
+      dctx.strokeStyle = off(st) ? '#c7c7cc' : bySpeed ? speedColor(st.speed[i], cur.vmax) : '#1d1d1f';
       dctx.lineWidth = width(b);
       dctx.beginPath(); dctx.moveTo(X(a.x), Y(a.y)); dctx.lineTo(X(b.x), Y(b.y)); dctx.stroke();
     }
@@ -243,8 +244,8 @@ function drawChart() {
   cctx.beginPath(); cctx.moveTo(pad.l, pad.t + H); cctx.lineTo(pad.l + W, pad.t + H); cctx.stroke();
 
   for (const st of cur.strokes) {
-    if (st.cleared && !$('#show-cleared').checked) continue;
-    cctx.strokeStyle = st.cleared ? '#c7c7cc' : '#1d1d1f';
+    if (off(st) && !$('#show-cleared').checked) continue;
+    cctx.strokeStyle = off(st) ? '#c7c7cc' : '#1d1d1f';
     cctx.lineWidth = 1.5;
     cctx.beginPath();
     st.points.forEach((p, i) => cctx[i ? 'lineTo' : 'moveTo'](X(st.start_ms + p.t), Y(st.speed[i])));
@@ -263,9 +264,30 @@ chart.addEventListener('pointerdown', e => {
 function renderTable() {
   const f = (n, d = 0) => n == null ? '–' : n.toFixed(d);
   $('#strokes').innerHTML =
-    `<tr><th>Stroke</th><th>Input</th><th>Starts at (s)</th><th>Clip phase (ms)</th><th>Duration (ms)</th><th>Points</th><th>Sample rate (Hz)</th><th>Length (px)</th><th>Mean speed (px/s)</th><th>Peak speed (px/s)</th><th>Peak at</th></tr>` +
-    cur.strokes.map(s => `<tr class="${s.cleared ? 'cleared' : ''}"><td>${s.stroke_index + 1}${s.cleared ? ' (cleared)' : ''}</td><td>${s.pointer_type}</td>` +
+    `<tr><th>Stroke</th><th>Group</th><th>Input</th><th>Starts at (s)</th><th>Clip phase (ms)</th><th>Duration (ms)</th><th>Points</th><th>Sample rate (Hz)</th><th>Length (px)</th><th>Mean speed (px/s)</th><th>Peak speed (px/s)</th><th>Peak at</th></tr>` +
+    cur.strokes.map(s => `<tr class="${off(s) ? 'cleared' : ''}"><td>${s.stroke_index + 1}${s.palm ? ' (palm)' : s.cleared ? ' (cleared)' : ''}</td><td>${(s.contact_group ?? s.stroke_index) + 1}</td><td>${s.pointer_type}</td>` +
       `<td>${f(s.start_ms / 1000, 2)}</td><td>${f(s.clip_phase_ms)} / ${cur.trial.clip_period_ms}</td><td>${f(s.duration_ms)}</td><td>${s.points.length}</td>` +
       `<td>${f(s.sample_rate_hz)}</td><td>${f(s.stats.length_px)}</td><td>${f(s.stats.mean_speed)}</td><td>${f(s.stats.peak_speed)}</td><td>${f(s.stats.peak_at * 100)}%</td></tr>`).join('');
+  $('#groups').innerHTML = multiTouch().join('<br>');
+}
+
+// For groups where two or more fingers were down together: how far apart the first two
+// were at the start and end of their overlap (pinch/spread), and how much the line between them turned.
+function multiTouch() {
+  const groups = Map.groupBy(cur.strokes.filter(s => !off(s)), s => s.contact_group ?? s.stroke_index);
+  const out = [];
+  for (const [g, st] of groups) {
+    if (st.length < 2) continue;
+    const [a, b] = st;
+    const t0 = Math.max(a.start_ms, b.start_ms), t1 = Math.min(a.end_ms, b.end_ms);
+    if (!(t1 > t0)) continue;
+    const at = (s, tt) => { let p = s.points[0]; for (const q of s.points) { if (s.start_ms + q.t <= tt) p = q; else break; } return p; };
+    const geo = tt => { const p = at(a, tt), q = at(b, tt); return { d: Math.hypot(q.x - p.x, q.y - p.y), ang: Math.atan2(q.y - p.y, q.x - p.x) }; };
+    const s0 = geo(t0), s1 = geo(t1);
+    let turn = (s1.ang - s0.ang) * 180 / Math.PI;
+    turn = ((turn + 540) % 360) - 180;
+    out.push(`<b>Group ${g + 1}</b>: ${st.length} fingers together for ${Math.round(t1 - t0)} ms · spread ${Math.round(s0.d)} → ${Math.round(s1.d)} px (×${(s1.d / (s0.d || 1)).toFixed(2)}) · turned ${turn >= 0 ? '+' : ''}${turn.toFixed(0)}°`);
+  }
+  return out;
 }
 })();

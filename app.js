@@ -104,7 +104,7 @@ $('#entry-form').onsubmit = async e => {
     clip_order: queue.map(c => c.id),
     clip_periods_ms: {},
   };
-  S = { session, queue, index: 0, penSeen: false };
+  S = { session, queue, index: 0 };
   await put('sessions', session);
   show('intro');
 };
@@ -120,7 +120,8 @@ fitStage($('#stage-wrap'), $('#stage'));
 
 let T = null;       // current trial record
 let t0 = 0;         // performance.now() at trial start
-let active = null;  // stroke being drawn
+const active = new Map();  // pointerId → stroke being drawn (several at once for pinches etc.)
+let contactGroup = -1;     // strokes that overlap in time share a group
 
 player.onLoop = now => { if (T) T.loop_starts_ms.push(r2(now - t0)); };
 
@@ -129,6 +130,8 @@ function startTrial() {
   player.load(clip);
   S.session.clip_periods_ms[clip.id] = player.period;
   t0 = performance.now();
+  active.clear();
+  contactGroup = -1;
   T = {
     trial_id: `${S.session.session_id}-${String(S.index).padStart(2, '0')}`,
     session_id: S.session.session_id,
@@ -150,11 +153,13 @@ function startTrial() {
   refreshButtons();
 }
 
+const shown = s => !s.cleared && !s.palm;
+
 function refreshButtons() {
-  const kept = T.strokes.filter(s => !s.cleared).length;
+  const kept = T.strokes.filter(shown).length;
   $('#next').disabled = !kept;
   $('#clear').disabled = !kept;
-  $('#hint').hidden = !!kept || !!active;
+  $('#hint').hidden = !!kept;
 }
 
 $('#replay').onclick = () => {
@@ -163,6 +168,7 @@ $('#replay').onclick = () => {
 };
 
 $('#clear').onclick = () => {
+  if (active.size) return;
   for (const s of T.strokes) s.cleared = true;   // kept in the data, just not shown
   redraw();
   refreshButtons();
@@ -170,7 +176,7 @@ $('#clear').onclick = () => {
 };
 
 $('#next').onclick = async () => {
-  if (active) return;
+  if (active.size) return;
   T.trial_end = new Date().toISOString();
   T.duration_ms = r2(performance.now() - t0);
   await put('trials', T);
@@ -209,43 +215,62 @@ function redraw() {
   ctx.strokeStyle = '#1d1d1f';
   ctx.lineCap = ctx.lineJoin = 'round';
   if (!T) return;
-  const strokes = T.strokes.filter(s => !s.cleared);
-  if (active) strokes.push(active.stroke);
-  for (const s of strokes) {
+  for (const s of T.strokes.filter(shown)) {
     const p = s.points;
     if (p.length === 1) drawSegment(p[0], { ...p[0], x: p[0].x + .1 });
     for (let i = 1; i < p.length; i++) drawSegment(p[i - 1], p[i]);
   }
 }
 
-function addPoint(ev) {
-  const s = active.stroke;
+function addPoint(a, ev) {
+  const s = a.stroke;
   const pt = {
-    x: r2(ev.clientX - active.rect.left),
-    y: r2(ev.clientY - active.rect.top),
-    t: r2(ev.timeStamp - active.tStart),
+    x: r2(ev.clientX - a.rect.left),
+    y: r2(ev.clientY - a.rect.top),
+    t: r2(ev.timeStamp - a.tStart),
     pressure: r2(ev.pressure),
     pointerType: ev.pointerType,
   };
   const prev = s.points[s.points.length - 1];
   if (prev && pt.t === prev.t && pt.x === prev.x && pt.y === prev.y) return;
   s.points.push(pt);
-  drawSegment(prev || { ...pt, x: pt.x + .1 }, pt);
+  if (!s.palm) drawSegment(prev || { ...pt, x: pt.x + .1 }, pt);
 }
 
+function finish(a, e) {
+  const s = a.stroke;
+  const last = s.points[s.points.length - 1];
+  s.duration_ms = last.t;
+  s.end_ms = r2(s.start_ms + last.t);
+  s.sample_rate_hz = last.t > 0 ? r2((s.points.length - 1) / (last.t / 1000)) : null;
+  if (e?.type === 'pointercancel') s.cancelled = true;
+  active.delete(s.pointer_id);
+}
+
+const penDown = () => [...active.values()].some(a => a.stroke.pointer_type === 'pen');
+
 canvas.addEventListener('pointerdown', e => {
-  if (!T || active) return;
-  if (e.pointerType === 'touch' && S.penSeen) return;   // palm rejection once a Pencil has been used
-  if (e.pointerType === 'pen') S.penSeen = true;
+  if (!T) return;
+  // Palm rejection: ignore touches while the Pencil is down, and drop touches that
+  // landed just before it (they're kept in the data, flagged palm: true).
+  if (e.pointerType === 'touch' && penDown()) return;
+  if (e.pointerType === 'pen') {
+    for (const a of active.values()) {
+      if (a.stroke.pointer_type === 'touch') { a.stroke.palm = true; finish(a); }
+    }
+    redraw();
+  }
   try { canvas.setPointerCapture(e.pointerId); } catch {}
+  if (!active.size) contactGroup++;
   const rect = canvas.getBoundingClientRect();
-  const sinceTrial = e.timeStamp - t0;
   const loopStart = player.loopStart;
-  active = {
-    id: e.pointerId, rect, tStart: e.timeStamp,
+  const a = {
+    rect, tStart: e.timeStamp,
     stroke: {
       stroke_index: T.strokes.length,
-      start_ms: r2(sinceTrial),                              // relative to trial start
+      pointer_id: e.pointerId,
+      contact_group: contactGroup,                           // same group = fingers down together (pinch, spread, two-finger drag)
+      start_ms: r2(e.timeStamp - t0),                        // relative to trial start
       clip_loop_index: Math.max(0, T.loop_starts_ms.length - 1),
       clip_phase_ms: r2(((e.timeStamp - loopStart) % player.period + player.period) % player.period), // where the clip was when the stroke began
       canvas: { w: Math.round(rect.width), h: Math.round(rect.height) },
@@ -254,27 +279,24 @@ canvas.addEventListener('pointerdown', e => {
       points: [],
     },
   };
-  addPoint(e);
+  active.set(e.pointerId, a);
+  T.strokes.push(a.stroke);
+  addPoint(a, e);
   refreshButtons();
 });
 
 canvas.addEventListener('pointermove', e => {
-  if (!active || e.pointerId !== active.id) return;
+  const a = active.get(e.pointerId);
+  if (!a) return;
   const evs = e.getCoalescedEvents?.();
-  for (const ev of evs?.length ? evs : [e]) addPoint(ev);
+  for (const ev of evs?.length ? evs : [e]) addPoint(a, ev);
 });
 
 function endStroke(e) {
-  if (!active || e.pointerId !== active.id) return;
-  addPoint(e);
-  const s = active.stroke;
-  const last = s.points[s.points.length - 1];
-  s.duration_ms = last.t;
-  s.end_ms = r2(s.start_ms + last.t);
-  s.sample_rate_hz = last.t > 0 ? r2((s.points.length - 1) / (last.t / 1000)) : null;
-  if (e.type === 'pointercancel') s.cancelled = true;
-  T.strokes.push(s);
-  active = null;
+  const a = active.get(e.pointerId);
+  if (!a) return;
+  addPoint(a, e);
+  finish(a, e);
   refreshButtons();
   put('trials', T);
 }

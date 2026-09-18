@@ -51,7 +51,9 @@ Each export is `{ format, session, trials[] }`, or `{ sessions: [...] }` for Exp
 - **stroke:** `start_ms` and `end_ms` relative to trial start, `clip_phase_ms` (how far into the clip's loop it was when the pen went down), canvas size, `sample_rate_hz`, `cleared`, and `points[]`.
 - **point:** `{ x, y, t, pressure, pointerType }`. x and y are canvas pixels, and t is milliseconds from the start of the stroke. Points are recorded at the native event rate, including coalesced events where Safari provides them.
 
-Cleared strokes stay in the data with `cleared: true`. Once a Pencil has been used in a session, finger touches on the canvas are ignored so a resting palm doesn't draw.
+Multi-touch is supported, so pinches, spreads and two-finger rotations are captured as one stroke per finger. Each stroke has a `pointer_id` and a `contact_group`. Fingers that were down at the same time share a group.
+
+Cleared strokes stay in the data with `cleared: true`. Palm rejection works like this: touches that start while the Pencil is down are ignored, and a touch that landed just before the Pencil is kept but flagged `palm: true` and hidden from the participant.
 
 ## Review page
 
@@ -60,6 +62,7 @@ Load one or more exports (or drag them in), then pick a trial. The clip on the l
 - playback speed from 0.1× to 2×, a scrubber, and space to play or pause
 - colour by speed, which blends from slow (blue) to fast (orange), scaled to the trial's 95th-percentile speed
 - a speed-over-time chart, with the clip's loop starts marked so you can line stroke timing up with the motion
-- a per-stroke table with duration, sample rate, path length, mean and peak speed, and when the peak happened
+- a per-stroke table with contact group, duration, sample rate, path length, mean and peak speed, and when the peak happened
+- for multi-finger groups, a summary of how far apart the first two fingers were at the start and end (the pinch or spread ratio) and how much the line between them turned
 
 Speed is smoothed over a ±12 ms window. Anything derived from it, acceleration especially, should be recomputed with proper filtering for analysis.

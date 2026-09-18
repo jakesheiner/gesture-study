@@ -47,6 +47,12 @@
   tr.cleared td { color: var(--muted); text-decoration: line-through; }
   .legend { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
   .legend i { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #2f55d4, #9b4dca, #f76707); }
+  @media (max-width: 900px) {
+    body { display: block; height: auto; overflow: auto; }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
+    .views { grid-template-columns: 1fr; height: auto; }
+    .views > * { aspect-ratio: 16 / 10; }
+  }
 </style>
 </head>
 <body>
@@ -73,10 +79,11 @@
       <label>Speed <select id="rate"><option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
       <label><input type="checkbox" id="by-speed" checked> Colour by speed</label>
       <label><input type="checkbox" id="ghost" checked> Ghost of full drawing</label>
-      <label><input type="checkbox" id="show-cleared"> Show cleared strokes</label>
+      <label><input type="checkbox" id="show-cleared"> Show cleared &amp; palm strokes</label>
       <span class="legend"><span>slow</span><i></i><span>fast</span></span>
     </div>
     <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    <p id="groups" style="margin:0;color:#48484a"></p>
     <table id="strokes"></table>
   </div>
 </main>
