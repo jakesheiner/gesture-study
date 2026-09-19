@@ -65,4 +65,6 @@ Load one or more exports (or drag them in), then pick a trial. The clip on the l
 - a per-stroke table with contact group, duration, sample rate, path length, mean and peak speed, and when the peak happened
 - for multi-finger groups, a summary of how far apart the first two fingers were at the start and end (the pinch or spread ratio) and how much the line between them turned
 
+Switch the sidebar to **By clip** to see every participant's entry for one clip in a grid next to the looping clip. **Play all** replays every entry at once, each starting from its own first stroke, so you can compare timing side by side. Speed colours use one scale across all entries. **Zoom each drawing to fit** compares shape regardless of how big or where on the canvas each person drew. Click an entry to open it in the single-trial view.
+
 Speed is smoothed over a ±12 ms window. Anything derived from it, acceleration especially, should be recomputed with proper filtering for analysis.

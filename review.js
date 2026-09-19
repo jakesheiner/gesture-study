@@ -26,9 +26,16 @@ $('#files').onchange = e => loadFiles(e.target.files);
 addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); loadFiles(e.dataTransfer.files); });
 
+let mode = 'participant';   // sidebar lists sessions → trials, or clips
+for (const b of document.querySelectorAll('.seg button')) {
+  b.onclick = () => { mode = b.dataset.mode; renderList(); };
+}
+
 function renderList() {
+  for (const b of document.querySelectorAll('.seg button')) b.classList.toggle('on', b.dataset.mode === mode);
   const list = $('#list');
   list.innerHTML = '';
+  if (mode === 'clip') return renderClipList(list);
   const sorted = [...sessions.values()].sort((a, b) => a.session.started_at.localeCompare(b.session.started_at));
   for (const { session, trials } of sorted) {
     const el = document.createElement('div');
@@ -37,14 +44,38 @@ function renderList() {
     for (const tr of trials) {
       const b = document.createElement('button');
       b.className = 'trial-btn';
+      b.dataset.trial = tr.trial_id;
       const n = tr.strokes.filter(s => !off(s)).length;
       b.innerHTML = `<span>${tr.order_index + 1}. ${esc(CLIP_BY_ID[tr.clip_id]?.label ?? tr.clip_id)}</span><small>${n}</small>`;
-      b.onclick = () => { document.querySelectorAll('.trial-btn.on').forEach(x => x.classList.remove('on')); b.classList.add('on'); open(session, tr); };
+      b.onclick = () => { select(b); open(session, tr); };
       el.append(b);
     }
     list.append(el);
   }
 }
+const select = b => { document.querySelectorAll('.trial-btn.on').forEach(x => x.classList.remove('on')); b.classList.add('on'); };
+
+function renderClipList(list) {
+  const counts = {};
+  for (const { trials } of sessions.values()) for (const tr of trials) counts[tr.clip_id] = (counts[tr.clip_id] ?? 0) + 1;
+  for (const [block, name] of Object.entries(BLOCKS)) {
+    const el = document.createElement('div');
+    el.className = 'sess';
+    el.innerHTML = `<h2>${name}</h2>`;
+    for (const clip of CLIPS.filter(c => c.block === block)) {
+      const b = document.createElement('button');
+      b.className = 'trial-btn';
+      b.dataset.clip = clip.id;
+      b.disabled = !counts[clip.id];
+      b.innerHTML = `<span>${esc(clip.label)}</span><small>${counts[clip.id] ?? 0}</small>`;
+      b.onclick = () => { select(b); openClip(clip); };
+      el.append(b);
+    }
+    list.append(el);
+  }
+  if (curClip) list.querySelector(`[data-clip="${curClip.clip.id}"]`)?.classList.add('on');
+}
+
 const esc = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 
 // ---------- kinematics ----------
@@ -83,13 +114,18 @@ function speedColor(v, vmax) {
   return `rgb(${r},${g},${b})`;
 }
 
+function showView(id) {
+  $('#empty').hidden = true;
+  for (const v of ['#viewer', '#clip-view']) $(v).style.display = v === id ? 'contents' : 'none';
+  if (id !== '#clip-view') { cPause(); clipPlayer.stop(); }
+}
+
 // ---------- open a trial ----------
 
 function open(session, trial) {
   pause();
   const clip = CLIP_BY_ID[trial.clip_id];
-  $('#empty').hidden = true;
-  $('#viewer').style.display = 'contents';
+  showView('#viewer');
   $('#title').textContent = clip?.label ?? `Unknown clip "${trial.clip_id}"`;
   const pens = [...new Set(trial.strokes.map(s => s.pointer_type))].join(', ') || 'no strokes';
   $('#meta').textContent = `${session.subject} · trial ${trial.order_index + 1} · ${BLOCKS[trial.block] ?? trial.block} · ${pens} · ${trial.replays_ms.length} replay${trial.replays_ms.length === 1 ? '' : 's'}`;
@@ -153,7 +189,7 @@ $('#to-stroke').onclick = () => cur && seek(firstStroke());
 $('#scrub').oninput = e => { pause(); seek(+e.target.value); };
 for (const id of ['#by-speed', '#ghost', '#show-cleared']) $(id).onchange = () => cur && seek(t);
 addEventListener('keydown', e => {
-  if (e.code === 'Space' && cur && e.target.tagName !== 'SELECT') { e.preventDefault(); playing ? pause() : play(); }
+  if (e.code === 'Space' && cur && $('#viewer').style.display !== 'none' && e.target.tagName !== 'SELECT') { e.preventDefault(); playing ? pause() : play(); }
 });
 
 // ---------- drawing ----------
@@ -171,49 +207,60 @@ function layoutCanvases() { if (cur) { sizeCanvas(draw); sizeCanvas(chart); seek
 new ResizeObserver(layoutCanvases).observe($('#draw-wrap'));
 
 function drawStrokes() {
-  const r = draw.getBoundingClientRect();
-  const { w, h } = cur.box;
-  const s = Math.min((r.width - 32) / w, (r.height - 40) / h);
-  const ox = (r.width - w * s) / 2, oy = (r.height - h * s) / 2 + 8;
-  dctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  dctx.clearRect(0, 0, r.width, r.height);
-  dctx.strokeStyle = '#ecebe6';
-  dctx.lineWidth = 1;
-  dctx.strokeRect(ox, oy, w * s, h * s);   // the participant's canvas
+  renderDrawing(dctx, draw.getBoundingClientRect(), cur.strokes.filter(st => $('#show-cleared').checked || !off(st)), st => t - st.start_ms, {
+    box: cur.box, vmax: cur.vmax, bySpeed: $('#by-speed').checked, ghost: $('#ghost').checked, pad: 20,
+  });
+}
 
-  dctx.lineCap = dctx.lineJoin = 'round';
-  const bySpeed = $('#by-speed').checked;
-  const visible = cur.strokes.filter(st => $('#show-cleared').checked || !off(st));
-  const X = x => ox + x * s, Y = y => oy + y * s;
-  const width = p => (p.pointerType === 'pen' ? 1.5 + p.pressure * 5 : 3.5) * Math.max(.6, s);
-
-  if ($('#ghost').checked) {
-    dctx.strokeStyle = '#e9e8e3';
-    for (const st of visible) path(st.points, st.points.length, X, Y, () => 3 * Math.max(.6, s));
+// Draws strokes into a canvas. localTime(stroke) = ms into that stroke to draw up to (Infinity = all of it).
+// fit: zoom to the drawing's own bounds instead of showing the participant's whole canvas.
+function renderDrawing(ctx, r, strokes, localTime, { box, fit = false, vmax, bySpeed, ghost, pad = 16, tip = true }) {
+  let bx = 0, by = 0, bw = box.w, bh = box.h;
+  if (fit) {
+    const pts = strokes.flatMap(st => st.points);
+    if (pts.length) {
+      const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+      const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      bw = Math.max(40, x1 - x0); bh = Math.max(40, y1 - y0);
+      bx = (x0 + x1 - bw) / 2; by = (y0 + y1 - bh) / 2;
+    }
   }
-  for (const st of visible) {
-    const local = t - st.start_ms;
+  const s = Math.min((r.width - 2 * pad) / bw, (r.height - 2 * pad) / bh);
+  const ox = (r.width - bw * s) / 2 - bx * s, oy = (r.height - bh * s) / 2 - by * s;
+  const X = x => ox + x * s, Y = y => oy + y * s;
+  const lw = Math.max(.6, Math.min(1.5, s));
+  const width = p => (p.pointerType === 'pen' ? 1.5 + p.pressure * 5 : 3.5) * lw;
+
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  if (!fit) {   // the participant's canvas
+    ctx.strokeStyle = '#ecebe6';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(X(0), Y(0), box.w * s, box.h * s);
+  }
+  ctx.lineCap = ctx.lineJoin = 'round';
+  const seg = (a, b) => { ctx.beginPath(); ctx.moveTo(X(a.x), Y(a.y)); ctx.lineTo(X(b.x), Y(b.y)); ctx.stroke(); };
+
+  if (ghost) {
+    ctx.strokeStyle = '#e9e8e3';
+    ctx.lineWidth = 3 * lw;
+    for (const st of strokes) for (let i = 1; i < st.points.length; i++) seg(st.points[i - 1], st.points[i]);
+  }
+  for (const st of strokes) {
+    const local = localTime(st);
     if (local < 0) continue;
     let n = 0;
     while (n < st.points.length && st.points[n].t <= local) n++;
     for (let i = 1; i < n; i++) {
-      const a = st.points[i - 1], b = st.points[i];
-      dctx.strokeStyle = off(st) ? '#c7c7cc' : bySpeed ? speedColor(st.speed[i], cur.vmax) : '#1d1d1f';
-      dctx.lineWidth = width(b);
-      dctx.beginPath(); dctx.moveTo(X(a.x), Y(a.y)); dctx.lineTo(X(b.x), Y(b.y)); dctx.stroke();
+      ctx.strokeStyle = off(st) ? '#c7c7cc' : bySpeed ? speedColor(st.speed[i], vmax) : '#1d1d1f';
+      ctx.lineWidth = width(st.points[i]);
+      seg(st.points[i - 1], st.points[i]);
     }
-    if (n > 0 && n < st.points.length) {   // pen tip while mid-stroke
+    if (tip && n > 0 && n < st.points.length) {   // pen tip while mid-stroke
       const p = st.points[n - 1];
-      dctx.fillStyle = '#1d1d1f';
-      dctx.beginPath(); dctx.arc(X(p.x), Y(p.y), 5, 0, Math.PI * 2); dctx.fill();
+      ctx.fillStyle = '#1d1d1f';
+      ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), 4, 0, Math.PI * 2); ctx.fill();
     }
-  }
-}
-
-function path(points, n, X, Y, w) {
-  for (let i = 1; i < n; i++) {
-    dctx.lineWidth = w(points[i]);
-    dctx.beginPath(); dctx.moveTo(X(points[i - 1].x), Y(points[i - 1].y)); dctx.lineTo(X(points[i].x), Y(points[i].y)); dctx.stroke();
   }
 }
 
@@ -290,4 +337,92 @@ function multiTouch() {
   }
   return out;
 }
+
+// ---------- clip view: every participant's entry for one clip ----------
+
+const clipPlayer = new ClipPlayer($('#c-stage'));
+fitStage($('#c-stage-wrap'), $('#c-stage'));
+let curClip = null;   // { clip, entries: [{ session, trial, strokes, first, span, canvas }], vmax, duration }
+let ct = Infinity, cPlaying = false, cLast = 0;
+
+function openClip(clip) {
+  pause();
+  const entries = [];
+  for (const { session, trials } of [...sessions.values()].sort((a, b) => a.session.started_at.localeCompare(b.session.started_at))) {
+    for (const trial of trials.filter(tr => tr.clip_id === clip.id)) {
+      const strokes = trial.strokes.filter(st => !off(st)).map(withSpeed);
+      const first = Math.min(...strokes.map(st => st.start_ms));
+      const span = strokes.length ? Math.max(...strokes.map(st => st.end_ms ?? st.start_ms)) - first : 0;
+      entries.push({ session, trial, strokes, first, span, box: strokes[0]?.canvas ?? { w: 800, h: 600 } });
+    }
+  }
+  // One speed scale for the whole clip so colours compare across participants.
+  const speeds = entries.flatMap(e => e.strokes.flatMap(st => st.speed)).sort((a, b) => a - b);
+  curClip = { clip, entries, vmax: speeds[Math.floor(speeds.length * .95)] || 1, duration: Math.max(0, ...entries.map(e => e.span)) };
+
+  showView('#clip-view');
+  $('#c-title').textContent = clip.label;
+  $('#c-meta').textContent = `${BLOCKS[clip.block]} · ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`;
+  clipPlayer.load(clip);
+  clipPlayer.start();
+
+  const grid = $('#c-grid');
+  grid.innerHTML = '';
+  for (const e of entries) {
+    const card = document.createElement('button');
+    card.className = 'card';
+    const n = e.strokes.length, fingers = Math.max(0, ...[...Map.groupBy(e.strokes, st => st.contact_group ?? st.stroke_index).values()].map(g => g.length));
+    card.innerHTML = `<canvas></canvas><div class="cap"><b>${esc(e.session.subject)}</b>` +
+      `<span>${n} stroke${n === 1 ? '' : 's'}${fingers > 1 ? ` · ${fingers} fingers` : ''} · ${(e.span / 1000).toFixed(2)} s</span></div>`;
+    card.title = 'Open this entry';
+    card.onclick = () => {
+      mode = 'participant';
+      renderList();
+      const b = $(`[data-trial="${e.trial.trial_id}"]`);
+      if (b) { select(b); b.scrollIntoView({ block: 'nearest' }); }
+      open(e.session, e.trial);
+    };
+    e.canvas = card.querySelector('canvas');
+    grid.append(card);
+  }
+  ct = Infinity;
+  renderCards();
+}
+
+function renderCards() {
+  if (!curClip) return;
+  const opts = { fit: $('#c-fit').checked, bySpeed: $('#c-by-speed').checked, vmax: curClip.vmax, pad: 14 };
+  for (const e of curClip.entries) {
+    const r = sizeCanvas(e.canvas);
+    renderDrawing(e.canvas.getContext('2d'), r, e.strokes, st => ct - (st.start_ms - e.first), { ...opts, box: e.box });
+  }
+  $('#c-time').textContent = ct === Infinity ? '' : `${(Math.min(ct, curClip.duration) / 1000).toFixed(2)} s`;
+}
+new ResizeObserver(() => renderCards()).observe($('#c-grid'));
+for (const id of ['#c-fit', '#c-by-speed']) $(id).onchange = renderCards;
+
+// Play all: every entry starts at its own first stroke, so the timing lines up side by side.
+function cPlay() {
+  if (!curClip) return;
+  cPlaying = true;
+  ct = 0;
+  $('#c-play').textContent = 'Stop';
+  cLast = performance.now();
+  requestAnimationFrame(cTick);
+}
+function cPause() {
+  cPlaying = false;
+  $('#c-play').textContent = 'Play all';
+}
+function cTick(now) {
+  if (!cPlaying) return;
+  ct += (now - cLast) * +$('#c-rate').value;
+  cLast = now;
+  if (ct >= curClip.duration + 400) { ct = Infinity; renderCards(); return cPause(); }
+  renderCards();
+  requestAnimationFrame(cTick);
+}
+$('#c-play').onclick = () => {
+  if (cPlaying) { cPause(); ct = Infinity; renderCards(); } else cPlay();
+};
 })();
