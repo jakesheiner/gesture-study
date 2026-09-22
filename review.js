@@ -4,6 +4,9 @@ const CLIP_BY_ID = Object.fromEntries(CLIPS.map(c => [c.id, c]));
 const SPEED_WINDOW_MS = 12;   // ± window for smoothed speed
 
 const off = s => s.cleared || s.palm;   // not shown to the participant
+const isAI = ses => ses.source === 'ai';
+const who = ses => isAI(ses) ? `ai-${ses.condition ?? 'ai'}` : 'human';
+const WHO_LABEL = { human: 'People', 'ai-frames': 'AI (frames)', 'ai-text': 'AI (text)', 'ai-ai': 'AI' };
 const sessions = new Map();   // session_id → { session, trials }
 let cur = null;               // { trial, strokes (with derived speed), duration, box, vmax }
 let t = 0, playing = false, lastFrame = 0;
@@ -36,11 +39,13 @@ function renderList() {
   const list = $('#list');
   list.innerHTML = '';
   if (mode === 'clip') return renderClipList(list);
-  const sorted = [...sessions.values()].sort((a, b) => a.session.started_at.localeCompare(b.session.started_at));
+  const sorted = [...sessions.values()].sort((a, b) =>
+    (isAI(a.session) - isAI(b.session)) || a.session.started_at.localeCompare(b.session.started_at));
   for (const { session, trials } of sorted) {
     const el = document.createElement('div');
     el.className = 'sess';
-    el.innerHTML = `<h2>${esc(session.subject)} · ${new Date(session.started_at).toLocaleDateString()}</h2>`;
+    const tag = isAI(session) ? `<i class="ai-tag">AI · ${esc(session.condition ?? '')}</i>` : new Date(session.started_at).toLocaleDateString();
+    el.innerHTML = `<h2>${esc(session.subject)} · ${tag}</h2>`;
     for (const tr of trials) {
       const b = document.createElement('button');
       b.className = 'trial-btn';
@@ -348,21 +353,38 @@ let ct = Infinity, cPlaying = false, cLast = 0;
 function openClip(clip) {
   pause();
   const entries = [];
-  for (const { session, trials } of [...sessions.values()].sort((a, b) => a.session.started_at.localeCompare(b.session.started_at))) {
+  const sorted = [...sessions.values()].sort((a, b) =>
+    (isAI(a.session) - isAI(b.session)) || a.session.subject.localeCompare(b.session.subject));
+  for (const { session, trials } of sorted) {
     for (const trial of trials.filter(tr => tr.clip_id === clip.id)) {
       const strokes = trial.strokes.filter(st => !off(st)).map(withSpeed);
       const first = Math.min(...strokes.map(st => st.start_ms));
       const span = strokes.length ? Math.max(...strokes.map(st => st.end_ms ?? st.start_ms)) - first : 0;
-      entries.push({ session, trial, strokes, first, span, box: strokes[0]?.canvas ?? { w: 800, h: 600 } });
+      entries.push({ session, trial, strokes, first, span, who: who(session), box: strokes[0]?.canvas ?? { w: 800, h: 600 } });
     }
   }
   // One speed scale for the whole clip so colours compare across participants.
   const speeds = entries.flatMap(e => e.strokes.flatMap(st => st.speed)).sort((a, b) => a - b);
-  curClip = { clip, entries, vmax: speeds[Math.floor(speeds.length * .95)] || 1, duration: Math.max(0, ...entries.map(e => e.span)) };
+  curClip = { clip, all: entries, entries, vmax: speeds[Math.floor(speeds.length * .95)] || 1 };
+
+  const kinds = [...new Set(entries.map(e => e.who))];
+  $('#c-who').innerHTML = `<option value="all">Everyone</option>` +
+    kinds.map(k => `<option value="${k}">${WHO_LABEL[k] ?? k} only</option>`).join('');
+  drawGrid();
+}
+
+function drawGrid() {
+  const pick = $('#c-who').value;
+  const entries = curClip.all.filter(e => pick === 'all' || e.who === pick);
+  curClip.entries = entries;
+  curClip.duration = Math.max(0, ...entries.map(e => e.span));
+  const clip = curClip.clip;
 
   showView('#clip-view');
   $('#c-title').textContent = clip.label;
-  $('#c-meta').textContent = `${BLOCKS[clip.block]} · ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`;
+  const byKind = Map.groupBy(entries, e => e.who);
+  $('#c-meta').textContent = `${BLOCKS[clip.block]} · ` +
+    [...byKind].map(([k, v]) => `${v.length} ${WHO_LABEL[k] ?? k}`).join(' · ');
   clipPlayer.load(clip);
   clipPlayer.start();
 
@@ -370,7 +392,7 @@ function openClip(clip) {
   grid.innerHTML = '';
   for (const e of entries) {
     const card = document.createElement('button');
-    card.className = 'card';
+    card.className = `card ${e.who}`;
     const n = e.strokes.length, fingers = Math.max(0, ...[...Map.groupBy(e.strokes, st => st.contact_group ?? st.stroke_index).values()].map(g => g.length));
     card.innerHTML = `<canvas></canvas><div class="cap"><b>${esc(e.session.subject)}</b>` +
       `<span>${n} stroke${n === 1 ? '' : 's'}${fingers > 1 ? ` · ${fingers} fingers` : ''} · ${(e.span / 1000).toFixed(2)} s</span></div>`;
@@ -400,6 +422,7 @@ function renderCards() {
 }
 new ResizeObserver(() => renderCards()).observe($('#c-grid'));
 for (const id of ['#c-fit', '#c-by-speed']) $(id).onchange = renderCards;
+$('#c-who').onchange = () => { cPause(); ct = Infinity; drawGrid(); };
 
 // Play all: every entry starts at its own first stroke, so the timing lines up side by side.
 function cPlay() {

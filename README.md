@@ -68,3 +68,25 @@ Load one or more exports (or drag them in), then pick a trial. The clip on the l
 Switch the sidebar to **By clip** to see every participant's entry for one clip in a grid next to the looping clip. **Play all** replays every entry at once, each starting from its own first stroke, so you can compare timing side by side. Speed colours use one scale across all entries. **Zoom each drawing to fit** compares shape regardless of how big or where on the canvas each person drew. Click an entry to open it in the single-trial view.
 
 Speed is smoothed over a ±12 ms window. Anything derived from it, acceleration especially, should be recomputed with proper filtering for analysis.
+
+## AI participants
+
+The same clip set can be run by AI "participants", so model-generated gestures can be compared with the human ones in the same review page. Everything for this lives in `ai/`.
+
+Two conditions, run by different instances so that seeing the frames can't colour the text answers:
+
+- **frames** — the instance sees `ai/frames/<clip_id>.png`, a strip of 16 stills of the real clip labelled with the time since the motion started. Regenerate the strips with `filmstrip.html` (see below).
+- **text** — the instance reads a plain-language description of the motion from `ai/descriptions.json` and never sees the clip.
+
+Each instance works alone: its own randomized clip order from `ai/clip-orders.json`, no access to other participants' answers, and no access to the clip source code. `ai/participant-brief.md` is the instruction sheet they follow — it mirrors what the human participants are told, plus the output format.
+
+Running a round:
+
+1. Regenerate the filmstrips if the clips changed. Serve the folder, then, with Playwright installed, screenshot `filmstrip.html?clip=<id>&frames=16&cols=4` for every clip into `ai/frames/`.
+2. Give each instance the brief, its condition, its clip order and an output path in `ai/responses/`.
+3. `node ai/build-sessions.js` turns every response file into a session export in `data/ai/`, in the same shape the iPad app produces.
+4. Load those files into the review page alongside the human exports.
+
+In the review page, AI sessions are tagged in the sidebar, and the **By clip** view has a **Show** menu for comparing everyone, only people, or one AI condition.
+
+**What this is and isn't.** The points a model emits are an account of a gesture, not a recording of a hand: the timing is authored rather than measured, so treat AI speed and acceleration as claims about how a motion should feel, not as motor data. The shape of the gesture, how many strokes it uses, whether it traces the path or abstracts it, and whether it reaches for two fingers are the comparable parts. `ai/responses/` and `data/ai/` are gitignored like the human data.

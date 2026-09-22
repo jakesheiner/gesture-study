@@ -61,6 +61,8 @@
   .card canvas { display: block; width: 100%; aspect-ratio: 4 / 3; }
   .cap { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 8px 12px; border-top: 1px solid #f0efea; font-size: 13px; }
   .cap span { color: var(--muted); }
+  .card.ai-frames .cap, .card.ai-text .cap { background: #f7f4ff; }
+  .ai-tag { font-style: normal; background: #ece7ff; color: #5b3fc4; border-radius: 5px; padding: 1px 5px; letter-spacing: 0; }
   @media (max-width: 900px) {
     .clip-top { grid-template-columns: 1fr; height: auto; }
     .clip-top .stage-wrap { aspect-ratio: 16 / 9; }
@@ -109,6 +111,7 @@
       <div class="stage-wrap" id="c-stage-wrap"><span class="tag">Reference clip (looping)</span><div class="stage" id="c-stage"></div></div>
       <div class="clip-ctrl">
         <div class="transport"><button id="c-play">Play all</button><span class="time" id="c-time"></span></div>
+        <label>Show <select id="c-who"><option value="all">Everyone</option></select></label>
         <label>Speed <select id="c-rate"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
         <label><input type="checkbox" id="c-fit" checked> Zoom each drawing to fit</label>
         <label><input type="checkbox" id="c-by-speed" checked> Colour by speed <span class="legend"><i></i></span></label>

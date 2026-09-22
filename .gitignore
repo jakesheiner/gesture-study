@@ -1,6 +1,7 @@
 # participant data never goes in the repo
 data/
-*.json
+gesture-*.json
+ai/responses/
 
 # kept private
 gesture-elicitation-webapp-spec.md
