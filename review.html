@@ -69,11 +69,16 @@
     flex: 1; min-height: 320px; background: #efeee9; border-radius: 14px; overflow: hidden;
   }
   .sheet-corner { background: var(--bg); }
-  .sheet-head-top, .sheet-head-left { overflow: hidden; background: var(--bg); }
-  .sheet-head-top canvas { display: block; }
-  .sheet-head-left canvas { display: block; }
-  .sheet-scroll { overflow: auto; }
-  .sheet-scroll canvas { display: block; cursor: pointer; }
+  #sheet-top, #sheet-left { display: block; width: 100%; height: 100%; background: var(--bg); }
+  .sheet-viewport { position: relative; overflow: hidden; }
+  .sheet-viewport #sheet { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .sheet-scroll { position: absolute; inset: 0; overflow: auto; cursor: pointer; }
+  #sheet-spacer { width: 1px; height: 1px; }
+  .zoomer { display: flex; align-items: center; gap: 8px; }
+  .zoomer button { padding: 4px 12px; font-size: 15px; line-height: 1.2; }
+  .zoomer input[type=range] { width: 130px; accent-color: var(--ink); }
+  .zoomer .time { min-width: 46px; }
+  .hintline { margin: 0; font-size: 12.5px; color: var(--muted); }
   @media (max-width: 900px) {
     #sheet-view { min-height: 70vh; }
     .clip-top { grid-template-columns: 1fr; height: auto; }
@@ -137,16 +142,26 @@
     <div class="opts">
       <button id="m-play">Play all</button><span class="time" id="m-time"></span>
       <label>Show <select id="m-who"><option value="all">Everyone</option></select></label>
-      <label>Size <select id="m-size"><option value="s">Small</option><option value="m" selected>Medium</option><option value="l">Large</option></select></label>
-      <label><input type="checkbox" id="m-fit" checked> Zoom each drawing to fit</label>
+      <span class="zoomer">
+        <button class="secondary" id="m-zoom-out-btn" title="Zoom out (−)">−</button>
+        <input type="range" id="m-zoom" min="0.12" max="6" step="0.01" value="1" title="Zoom">
+        <button class="secondary" id="m-zoom-in-btn" title="Zoom in (+)">+</button>
+        <span id="m-zoom-out" class="time">100%</span>
+        <button class="secondary" id="m-fit" title="Fit everything (0)">Fit all</button>
+      </span>
+      <label><input type="checkbox" id="m-fit-draw" checked> Zoom each drawing to fit</label>
       <label><input type="checkbox" id="m-by-speed" checked> Colour by speed <span class="legend"><i></i></span></label>
     </div>
     <div class="sheet-grid">
       <div class="sheet-corner"></div>
-      <div id="sheet-top-wrap" class="sheet-head-top"><canvas id="sheet-top"></canvas></div>
-      <div id="sheet-left-wrap" class="sheet-head-left"><canvas id="sheet-left"></canvas></div>
-      <div id="sheet-scroll" class="sheet-scroll"><canvas id="sheet"></canvas></div>
+      <canvas id="sheet-top"></canvas>
+      <canvas id="sheet-left"></canvas>
+      <div class="sheet-viewport" id="sheet-viewport">
+        <canvas id="sheet"></canvas>
+        <div class="sheet-scroll" id="sheet-scroll"><div id="sheet-spacer"></div></div>
+      </div>
     </div>
+    <p class="hintline">Scroll to move · ⌘/ctrl + scroll or pinch to zoom · double-click a trial to zoom to it · click to open it · + − 0 on the keyboard</p>
   </div>
 </main>
 <script src="clips.js"></script>

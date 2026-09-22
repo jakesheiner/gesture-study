@@ -453,15 +453,24 @@ $('#c-play').onclick = () => {
   if (cPlaying) { cPause(); ct = Infinity; renderCards(); } else cPlay();
 };
 
-// ---------- contact sheet: every clip against every participant, on one canvas ----------
+// ---------- contact sheet: every clip against every participant, on one zoomable canvas ----------
+// Only the cells in view are drawn, so zooming from the whole study down to a single
+// trial stays smooth however many participants are loaded.
 
-const CELL = { s: [130, 90], m: [190, 130], l: [260, 180] };
-const HEAD = { w: 150, h: 30 }, GAP = 6;
+const BASE = { w: 190, h: 130 }, GAP = 8, HEAD = { w: 150, h: 30 };
+const Z_MIN = 0.12, Z_MAX = 6;
+
 const sheet = $('#sheet'), sctx = sheet.getContext('2d');
 const topHead = $('#sheet-top'), tctx = topHead.getContext('2d');
 const leftHead = $('#sheet-left'), lctx = leftHead.getContext('2d');
-let M = null;                 // { cols, rows, cells, vmax, cw, ch, duration }
+const viewport = $('#sheet-viewport'), scroller = $('#sheet-scroll'), spacer = $('#sheet-spacer');
+
+let M = null;            // { cols, rows, cells, vmax, duration }
+let z = 1;               // zoom: 1 = one cell at its natural 190×130
 let mt = Infinity, mPlaying = false, mLast = 0;
+
+const cellW = () => BASE.w * z, cellH = () => BASE.h * z;
+const stepX = () => cellW() + GAP * Math.min(1, z), stepY = () => cellH() + GAP * Math.min(1, z);
 
 function renderSheetList(list) {
   const el = document.createElement('div');
@@ -471,10 +480,7 @@ function renderSheetList(list) {
     const b = document.createElement('button');
     b.className = 'trial-btn';
     b.innerHTML = `<span>${esc(clip.label)}</span>`;
-    b.onclick = () => {
-      const i = M.rows.findIndex(r => r.id === clip.id);
-      $('#sheet-scroll').scrollTo({ top: i * (M.ch + GAP), behavior: 'smooth' });
-    };
+    b.onclick = () => scroller.scrollTo({ top: M.rows.findIndex(r => r.id === clip.id) * stepY(), behavior: 'smooth' });
     el.append(b);
   }
   list.append(el);
@@ -507,8 +513,7 @@ function openSheet() {
     }
   }
   const speeds = cells.flatMap(c => c.strokes.flatMap(st => st.speed)).sort((a, b) => a - b);
-  const [cw, ch] = CELL[$('#m-size').value] ?? CELL.m;
-  M = { cols, rows, cells, cw, ch, vmax: speeds[Math.floor(speeds.length * .95)] || 1, duration: Math.max(0, ...cells.map(c => c.span)) };
+  M = { cols, rows, cells, vmax: speeds[Math.floor(speeds.length * .95)] || 1, duration: Math.max(0, ...cells.map(c => c.span)) };
 
   const kinds = [...new Set([...sessions.values()].map(s => who(s.session)))];
   if ($('#m-who').options.length !== kinds.length + 1) {
@@ -518,57 +523,68 @@ function openSheet() {
   $('#m-meta').textContent = `${rows.length} clips × ${cols.length} participants · ${cells.length} trials`;
 
   showView('#sheet-view');
-  sizeSheet();
+  layoutSheet();
 }
 
-function sizeSheet() {
+function layoutSheet() {
   if (!M) return;
-  const W = M.cols.length * (M.cw + GAP), H = M.rows.length * (M.ch + GAP);
-  for (const [c, w, h] of [[sheet, W, H], [topHead, W, HEAD.h], [leftHead, HEAD.w, H]]) {
-    c.style.width = w + 'px'; c.style.height = h + 'px';
-    c.width = Math.round(w * devicePixelRatio); c.height = Math.round(h * devicePixelRatio);
+  spacer.style.width = `${M.cols.length * stepX()}px`;
+  spacer.style.height = `${M.rows.length * stepY()}px`;
+  for (const [c, w, h] of [[sheet, viewport.clientWidth, viewport.clientHeight],
+                           [topHead, topHead.clientWidth, HEAD.h],
+                           [leftHead, HEAD.w, leftHead.clientHeight]]) {
+    c.width = Math.round(w * devicePixelRatio);
+    c.height = Math.round(h * devicePixelRatio);
   }
+  $('#m-zoom').value = z;
+  $('#m-zoom-out').textContent = `${Math.round(z * 100)}%`;
   drawSheet();
 }
 
 function drawSheet() {
   if (!M) return;
-  const { cw, ch } = M;
-  sctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  sctx.clearRect(0, 0, sheet.width, sheet.height);
+  const sx = scroller.scrollLeft, sy = scroller.scrollTop;
+  const vw = viewport.clientWidth, vh = viewport.clientHeight;
+  const cw = cellW(), ch = cellH(), dx = stepX(), dy = stepY();
+  const c0 = Math.max(0, Math.floor(sx / dx)), c1 = Math.min(M.cols.length - 1, Math.ceil((sx + vw) / dx));
+  const r0 = Math.max(0, Math.floor(sy / dy)), r1 = Math.min(M.rows.length - 1, Math.ceil((sy + vh) / dy));
 
-  // cell backgrounds, so a participant who skipped a clip reads as a gap
-  for (const ri of M.rows.keys()) {
-    for (const [ci, col] of M.cols.entries()) {
-      sctx.fillStyle = col.kind === 'human' ? '#fff' : '#fbfaff';
-      sctx.fillRect(ci * (cw + GAP), ri * (ch + GAP), cw, ch);
+  sctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  sctx.clearRect(0, 0, vw, vh);
+  for (let ri = r0; ri <= r1; ri++) {
+    for (let ci = c0; ci <= c1; ci++) {
+      sctx.fillStyle = M.cols[ci].kind === 'human' ? '#fff' : '#fbfaff';
+      sctx.fillRect(ci * dx - sx, ri * dy - sy, cw, ch);
     }
   }
-  const opts = { fit: $('#m-fit').checked, bySpeed: $('#m-by-speed').checked, vmax: M.vmax, pad: 10, clear: false, frame: false };
+  const opts = { fit: $('#m-fit-draw').checked, bySpeed: $('#m-by-speed').checked, vmax: M.vmax,
+                 pad: Math.max(4, 10 * Math.min(1.5, z)), clear: false, frame: false };
   for (const c of M.cells) {
-    renderDrawing(sctx, { x: c.ci * (cw + GAP), y: c.ri * (ch + GAP), width: cw, height: ch },
+    if (c.ri < r0 || c.ri > r1 || c.ci < c0 || c.ci > c1) continue;
+    renderDrawing(sctx, { x: c.ci * dx - sx, y: c.ri * dy - sy, width: cw, height: ch },
       c.strokes, st => mt - (st.start_ms - c.first), { ...opts, box: c.box });
   }
 
   tctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  tctx.clearRect(0, 0, topHead.width, topHead.height);
+  tctx.clearRect(0, 0, topHead.clientWidth, HEAD.h);
   tctx.font = '600 12px -apple-system, sans-serif';
   tctx.textBaseline = 'middle';
-  for (const [ci, col] of M.cols.entries()) {
-    tctx.fillStyle = col.kind === 'human' ? '#1d1d1f' : '#5b3fc4';
-    tctx.fillText(col.label, ci * (cw + GAP) + 4, HEAD.h / 2, cw - 8);
+  for (let ci = c0; ci <= c1; ci++) {
+    tctx.fillStyle = M.cols[ci].kind === 'human' ? '#1d1d1f' : '#5b3fc4';
+    tctx.fillText(M.cols[ci].label, ci * dx - sx + 4, HEAD.h / 2, Math.max(40, cw - 8));
   }
 
   lctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  lctx.clearRect(0, 0, leftHead.width, leftHead.height);
+  lctx.clearRect(0, 0, HEAD.w, leftHead.clientHeight);
   lctx.font = '500 12px -apple-system, sans-serif';
   lctx.fillStyle = '#1d1d1f';
   lctx.textBaseline = 'middle';
-  for (const [ri, row] of M.rows.entries()) {
-    const y = ri * (ch + GAP) + ch / 2;
+  for (let ri = r0; ri <= r1; ri++) {
+    const y = ri * dy - sy + ch / 2;
+    if (ch < 26) { lctx.fillText(M.rows[ri].label, 8, y, HEAD.w - 12); continue; }
     const lines = [];
     let line = '';
-    for (const w of row.label.split(' ')) {
+    for (const w of M.rows[ri].label.split(' ')) {
       if (line && lctx.measureText(`${line} ${w}`).width > HEAD.w - 16) { lines.push(line); line = w; }
       else line = line ? `${line} ${w}` : w;
     }
@@ -578,15 +594,59 @@ function drawSheet() {
   $('#m-time').textContent = mt === Infinity ? '' : `${(Math.min(mt, M.duration) / 1000).toFixed(2)} s`;
 }
 
-$('#sheet-scroll').addEventListener('scroll', e => {
-  $('#sheet-top-wrap').scrollLeft = e.target.scrollLeft;
-  $('#sheet-left-wrap').scrollTop = e.target.scrollTop;
-});
-sheet.addEventListener('click', e => {
+// ---------- zoom ----------
+
+// Keeps the point under (ax, ay) — viewport coordinates — fixed while the scale changes.
+function setZoom(next, ax = viewport.clientWidth / 2, ay = viewport.clientHeight / 2) {
   if (!M) return;
-  const r = sheet.getBoundingClientRect();
-  const ci = Math.floor((e.clientX - r.left) / (M.cw + GAP)), ri = Math.floor((e.clientY - r.top) / (M.ch + GAP));
-  const cell = M.cells.find(c => c.ci === ci && c.ri === ri);
+  const clamped = Math.min(Z_MAX, Math.max(Z_MIN, next));
+  if (clamped === z) return;
+  const fx = (scroller.scrollLeft + ax) / stepX(), fy = (scroller.scrollTop + ay) / stepY();
+  z = clamped;
+  layoutSheet();
+  scroller.scrollLeft = fx * stepX() - ax;
+  scroller.scrollTop = fy * stepY() - ay;
+  drawSheet();
+}
+
+function fitAll() {
+  if (!M) return;
+  const zx = viewport.clientWidth / (M.cols.length * (BASE.w + GAP));
+  const zy = viewport.clientHeight / (M.rows.length * (BASE.h + GAP));
+  z = Math.min(Z_MAX, Math.max(Z_MIN, Math.min(zx, zy)));
+  layoutSheet();
+  scroller.scrollTo({ top: 0, left: 0 });
+}
+
+function zoomToCell(cell) {
+  const zx = viewport.clientWidth / (BASE.w + GAP), zy = viewport.clientHeight / (BASE.h + GAP);
+  z = Math.min(Z_MAX, Math.min(zx, zy)) * 0.92;
+  layoutSheet();
+  scroller.scrollTo({
+    left: cell.ci * stepX() - (viewport.clientWidth - cellW()) / 2,
+    top: cell.ri * stepY() - (viewport.clientHeight - cellH()) / 2,
+  });
+}
+
+const cellAt = (px, py) => {
+  const ci = Math.floor((px + scroller.scrollLeft) / stepX()), ri = Math.floor((py + scroller.scrollTop) / stepY());
+  return M?.cells.find(c => c.ci === ci && c.ri === ri) ?? null;
+};
+const pointerPos = e => {
+  const r = viewport.getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+};
+
+scroller.addEventListener('scroll', drawSheet, { passive: true });
+// Pinch on a trackpad and ctrl/⌘+wheel arrive as wheel events with ctrlKey set.
+scroller.addEventListener('wheel', e => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  const [ax, ay] = pointerPos(e);
+  setZoom(z * Math.exp(-e.deltaY * 0.0035), ax, ay);
+}, { passive: false });
+scroller.addEventListener('click', e => {
+  const cell = cellAt(...pointerPos(e));
   if (!cell) return;
   mode = 'participant';
   renderList();
@@ -594,14 +654,30 @@ sheet.addEventListener('click', e => {
   if (b) { select(b); b.scrollIntoView({ block: 'nearest' }); }
   open(cell.session, cell.trial);
 });
-for (const id of ['#m-fit', '#m-by-speed']) $(id).onchange = drawSheet;
-for (const id of ['#m-size', '#m-who']) $(id).onchange = () => { openSheet(); renderList(); };
+scroller.addEventListener('dblclick', e => {
+  const cell = cellAt(...pointerPos(e));
+  if (cell) { e.preventDefault(); zoomToCell(cell); }
+});
+$('#m-zoom').oninput = e => setZoom(+e.target.value);
+$('#m-zoom-in-btn').onclick = () => setZoom(z * 1.4);
+$('#m-zoom-out-btn').onclick = () => setZoom(z / 1.4);
+$('#m-fit').onclick = fitAll;
+addEventListener('keydown', e => {
+  if ($('#sheet-view').style.display === 'none' || e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom(z * 1.4); }
+  else if (e.key === '-') { e.preventDefault(); setZoom(z / 1.4); }
+  else if (e.key === '0') { e.preventDefault(); fitAll(); }
+});
+for (const id of ['#m-fit-draw', '#m-by-speed']) $(id).onchange = drawSheet;
+$('#m-who').onchange = () => { openSheet(); renderList(); };
+new ResizeObserver(() => { if ($('#sheet-view').style.display !== 'none') layoutSheet(); }).observe(viewport);
 
-// Play all: every cell runs at once, each from its own first stroke.
+// ---------- play all ----------
+
 function mPause() { mPlaying = false; $('#m-play').textContent = 'Play all'; }
 function mTick(now) {
   if (!mPlaying) return;
-  mt += (now - mLast);
+  mt += now - mLast;
   mLast = now;
   if (mt >= M.duration + 400) { mt = Infinity; drawSheet(); return mPause(); }
   drawSheet();
@@ -613,6 +689,4 @@ $('#m-play').onclick = () => {
   $('#m-play').textContent = 'Stop';
   requestAnimationFrame(mTick);
 };
-addEventListener('resize', () => { if (M && $('#sheet-view').style.display !== 'none') sizeSheet(); });
-
 })();
