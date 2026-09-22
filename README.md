@@ -60,14 +60,14 @@ Cleared strokes stay in the data with `cleared: true`. Palm rejection works like
 Load one or more exports (or drag them in), then pick a trial. The clip on the left is driven by the logged loop starts, so it shows exactly what the participant was watching at each moment of the drawing. The page has these controls:
 
 - playback speed from 0.1× to 2×, a scrubber, and space to play or pause
-- colour by speed, which blends from slow (blue) to fast (orange), scaled to the trial's 95th-percentile speed
+- colour by speed, which blends from slow (blue) to fast (orange), scaled to the trial's 95th-percentile speed. In the **By clip** and **All** views, **Colour by** switches between who drew it (teal for people, violet for AI from frames, orange for AI from descriptions), speed, and plain ink
 - a speed-over-time chart, with the clip's loop starts marked so you can line stroke timing up with the motion
 - a per-stroke table with contact group, duration, sample rate, path length, mean and peak speed, and when the peak happened
 - for multi-finger groups, a summary of how far apart the first two fingers were at the start and end (the pinch or spread ratio) and how much the line between them turned
 
 Switch the sidebar to **By clip** to see every participant's entry for one clip in a grid next to the looping clip. **Play all** replays every entry at once, each starting from its own first stroke, so you can compare timing side by side. Speed colours use one scale across all entries. **Zoom each drawing to fit** compares shape regardless of how big or where on the canvas each person drew. Click an entry to open it in the single-trial view.
 
-The **All** tab is a contact sheet of the whole study on one scrollable canvas: clips down the side, participants across the top, one thumbnail per trial. Clip names and participant names stay pinned while you scroll. **Play all** runs every trial at once, each from its own first stroke, so a whole column or row can be compared at a glance. Zoom is continuous, from the whole study on one screen to a single trial filling the view: use the slider, ⌘/ctrl + scroll, a trackpad pinch, the + and − keys, or **Fit all** (the 0 key). Double-clicking a trial zooms to it, a single click opens it in the single-trial view, and only the cells in view are drawn so it stays smooth. The **Show** menu filters people against either AI condition. Gaps mean that participant has no entry for that clip.
+The **All** tab is a contact sheet of the whole study on one scrollable canvas: clips down the side, participants across the top, one thumbnail per trial. Clip names and participant names stay pinned while you scroll. **Play all** runs every trial at once, each from its own first stroke, so a whole column or row can be compared at a glance. Zoom is continuous, from the whole study on one screen to a single trial filling the view: use the slider, ⌘/ctrl + scroll, a trackpad pinch, the + and − keys, or **Fit all** (the 0 key). Double-clicking a trial zooms to it, a single click opens it in the single-trial view, and only the cells in view are drawn so it stays smooth. The **Show** menu filters people against either AI condition, and columns are tinted and labelled in each source's colour. Gaps mean that participant has no entry for that clip.
 
 Speed is smoothed over a ±12 ms window. Anything derived from it, acceleration especially, should be recomputed with proper filtering for analysis.
 
@@ -89,6 +89,6 @@ Running a round:
 3. `node ai/build-sessions.js` turns every response file into a session export in `data/ai/`, in the same shape the iPad app produces.
 4. Load those files into the review page alongside the human exports.
 
-In the review page, AI sessions are tagged in the sidebar, and the **By clip** view has a **Show** menu for comparing everyone, only people, or one AI condition.
+In the review page, AI sessions are tagged in the sidebar in their condition's colour, and the **By clip** view has a **Show** menu for comparing everyone, only people, or one AI condition.
 
 **What this is and isn't.** The points a model emits are an account of a gesture, not a recording of a hand: the timing is authored rather than measured, so treat AI speed and acceleration as claims about how a motion should feel, not as motor data. The shape of the gesture, how many strokes it uses, whether it traces the path or abstracts it, and whether it reaches for two fingers are the comparable parts. `ai/responses/` and `data/ai/` are gitignored like the human data.

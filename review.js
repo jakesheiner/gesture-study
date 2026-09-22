@@ -7,6 +7,18 @@ const off = s => s.cleared || s.palm;   // not shown to the participant
 const isAI = ses => ses.source === 'ai';
 const who = ses => isAI(ses) ? `ai-${ses.condition ?? 'ai'}` : 'human';
 const WHO_LABEL = { human: 'People', 'ai-frames': 'AI (frames)', 'ai-text': 'AI (text)', 'ai-ai': 'AI' };
+// One colour per source, used wherever entries from different sources sit side by side.
+const WHO_COLOR = { human: '#0f766e', 'ai-frames': '#6d4bd4', 'ai-text': '#c2410c', 'ai-ai': '#6d4bd4' };
+const WHO_TINT = { human: '#ffffff', 'ai-frames': '#faf8ff', 'ai-text': '#fff9f4', 'ai-ai': '#faf8ff' };
+
+// Legend for the current colour mode: speed ramp, one swatch per source, or nothing.
+function drawLegend(el, mode, kinds) {
+  el.innerHTML = mode === 'speed'
+    ? `<span>slow</span><i class="ramp"></i><span>fast</span>`
+    : mode === 'who'
+      ? kinds.map(k => `<span class="key"><i style="background:${WHO_COLOR[k] ?? '#1d1d1f'}"></i>${WHO_LABEL[k] ?? k}</span>`).join('')
+      : '';
+}
 const sessions = new Map();   // session_id → { session, trials }
 let cur = null;               // { trial, strokes (with derived speed), duration, box, vmax }
 let t = 0, playing = false, lastFrame = 0;
@@ -45,7 +57,10 @@ function renderList() {
   for (const { session, trials } of sorted) {
     const el = document.createElement('div');
     el.className = 'sess';
-    const tag = isAI(session) ? `<i class="ai-tag">AI · ${esc(session.condition ?? '')}</i>` : new Date(session.started_at).toLocaleDateString();
+    const w = who(session);
+    const tag = isAI(session)
+      ? `<i class="ai-tag" style="color:${WHO_COLOR[w]};background:${WHO_TINT[w]};box-shadow:inset 0 0 0 1px ${WHO_COLOR[w]}33">AI · ${esc(session.condition ?? '')}</i>`
+      : new Date(session.started_at).toLocaleDateString();
     el.innerHTML = `<h2>${esc(session.subject)} · ${tag}</h2>`;
     for (const tr of trials) {
       const b = document.createElement('button');
@@ -143,7 +158,7 @@ function open(session, trial) {
   const speeds = strokes.filter(s => !off(s)).flatMap(s => s.speed).sort((a, b) => a - b);
   const lastEnd = Math.max(0, ...strokes.map(s => s.end_ms ?? s.start_ms));
   cur = {
-    trial, clip, strokes,
+    trial, clip, strokes, who: who(session),
     duration: Math.max(trial.duration_ms ?? 0, lastEnd + 500),
     box: strokes[0]?.canvas ?? { w: 800, h: 600 },
     vmax: speeds[Math.floor(speeds.length * .95)] || 1,
@@ -216,13 +231,14 @@ new ResizeObserver(layoutCanvases).observe($('#draw-wrap'));
 
 function drawStrokes() {
   renderDrawing(dctx, draw.getBoundingClientRect(), cur.strokes.filter(st => $('#show-cleared').checked || !off(st)), st => t - st.start_ms, {
-    box: cur.box, vmax: cur.vmax, bySpeed: $('#by-speed').checked, ghost: $('#ghost').checked, pad: 20,
+    box: cur.box, vmax: cur.vmax, bySpeed: $('#by-speed').checked, color: WHO_COLOR[cur.who] ?? '#1d1d1f',
+    ghost: $('#ghost').checked, pad: 20,
   });
 }
 
 // Draws strokes into a canvas. localTime(stroke) = ms into that stroke to draw up to (Infinity = all of it).
 // fit: zoom to the drawing's own bounds instead of showing the participant's whole canvas.
-function renderDrawing(ctx, r, strokes, localTime, { box, fit = false, vmax, bySpeed, ghost, pad = 16, tip = true, clear = true, frame = true }) {
+function renderDrawing(ctx, r, strokes, localTime, { box, fit = false, vmax, bySpeed, color = '#1d1d1f', ghost, pad = 16, tip = true, clear = true, frame = true }) {
   const rx = r.x ?? 0, ry = r.y ?? 0;
   let bx = 0, by = 0, bw = box.w, bh = box.h;
   if (fit) {
@@ -261,13 +277,13 @@ function renderDrawing(ctx, r, strokes, localTime, { box, fit = false, vmax, byS
     let n = 0;
     while (n < st.points.length && st.points[n].t <= local) n++;
     for (let i = 1; i < n; i++) {
-      ctx.strokeStyle = off(st) ? '#c7c7cc' : bySpeed ? speedColor(st.speed[i], vmax) : '#1d1d1f';
+      ctx.strokeStyle = off(st) ? '#c7c7cc' : bySpeed ? speedColor(st.speed[i], vmax) : color;
       ctx.lineWidth = width(st.points[i]);
       seg(st.points[i - 1], st.points[i]);
     }
     if (tip && n > 0 && n < st.points.length) {   // pen tip while mid-stroke
       const p = st.points[n - 1];
-      ctx.fillStyle = '#1d1d1f';
+      ctx.fillStyle = bySpeed ? '#1d1d1f' : color;
       ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), 4, 0, Math.PI * 2); ctx.fill();
     }
   }
@@ -417,15 +433,18 @@ function drawGrid() {
 
 function renderCards() {
   if (!curClip) return;
-  const opts = { fit: $('#c-fit').checked, bySpeed: $('#c-by-speed').checked, vmax: curClip.vmax, pad: 14 };
+  const cmode = $('#c-color').value;
+  const opts = { fit: $('#c-fit').checked, bySpeed: cmode === 'speed', vmax: curClip.vmax, pad: 14 };
+  drawLegend($('#c-legend'), cmode, [...new Set(curClip.entries.map(e => e.who))]);
   for (const e of curClip.entries) {
     const r = sizeCanvas(e.canvas);
-    renderDrawing(e.canvas.getContext('2d'), r, e.strokes, st => ct - (st.start_ms - e.first), { ...opts, box: e.box });
+    renderDrawing(e.canvas.getContext('2d'), r, e.strokes, st => ct - (st.start_ms - e.first),
+      { ...opts, box: e.box, color: cmode === 'who' ? (WHO_COLOR[e.who] ?? '#1d1d1f') : '#1d1d1f' });
   }
   $('#c-time').textContent = ct === Infinity ? '' : `${(Math.min(ct, curClip.duration) / 1000).toFixed(2)} s`;
 }
 new ResizeObserver(() => renderCards()).observe($('#c-grid'));
-for (const id of ['#c-fit', '#c-by-speed']) $(id).onchange = renderCards;
+for (const id of ['#c-fit', '#c-color']) $(id).onchange = renderCards;
 $('#c-who').onchange = () => { cPause(); ct = Infinity; drawGrid(); };
 
 // Play all: every entry starts at its own first stroke, so the timing lines up side by side.
@@ -553,16 +572,19 @@ function drawSheet() {
   sctx.clearRect(0, 0, vw, vh);
   for (let ri = r0; ri <= r1; ri++) {
     for (let ci = c0; ci <= c1; ci++) {
-      sctx.fillStyle = M.cols[ci].kind === 'human' ? '#fff' : '#fbfaff';
+      sctx.fillStyle = WHO_TINT[M.cols[ci].kind] ?? '#fff';
       sctx.fillRect(ci * dx - sx, ri * dy - sy, cw, ch);
     }
   }
-  const opts = { fit: $('#m-fit-draw').checked, bySpeed: $('#m-by-speed').checked, vmax: M.vmax,
+  const mmode = $('#m-color').value;
+  const opts = { fit: $('#m-fit-draw').checked, bySpeed: mmode === 'speed', vmax: M.vmax,
                  pad: Math.max(4, 10 * Math.min(1.5, z)), clear: false, frame: false };
+  drawLegend($('#m-legend'), mmode, [...new Set(M.cols.map(c => c.kind))]);
   for (const c of M.cells) {
     if (c.ri < r0 || c.ri > r1 || c.ci < c0 || c.ci > c1) continue;
     renderDrawing(sctx, { x: c.ci * dx - sx, y: c.ri * dy - sy, width: cw, height: ch },
-      c.strokes, st => mt - (st.start_ms - c.first), { ...opts, box: c.box });
+      c.strokes, st => mt - (st.start_ms - c.first),
+      { ...opts, box: c.box, color: mmode === 'who' ? (WHO_COLOR[M.cols[c.ci].kind] ?? '#1d1d1f') : '#1d1d1f' });
   }
 
   tctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
@@ -570,7 +592,7 @@ function drawSheet() {
   tctx.font = '600 12px -apple-system, sans-serif';
   tctx.textBaseline = 'middle';
   for (let ci = c0; ci <= c1; ci++) {
-    tctx.fillStyle = M.cols[ci].kind === 'human' ? '#1d1d1f' : '#5b3fc4';
+    tctx.fillStyle = WHO_COLOR[M.cols[ci].kind] ?? '#1d1d1f';
     tctx.fillText(M.cols[ci].label, ci * dx - sx + 4, HEAD.h / 2, Math.max(40, cw - 8));
   }
 
@@ -668,7 +690,7 @@ addEventListener('keydown', e => {
   else if (e.key === '-') { e.preventDefault(); setZoom(z / 1.4); }
   else if (e.key === '0') { e.preventDefault(); fitAll(); }
 });
-for (const id of ['#m-fit-draw', '#m-by-speed']) $(id).onchange = drawSheet;
+for (const id of ['#m-fit-draw', '#m-color']) $(id).onchange = drawSheet;
 $('#m-who').onchange = () => { openSheet(); renderList(); };
 new ResizeObserver(() => { if ($('#sheet-view').style.display !== 'none') layoutSheet(); }).observe(viewport);
 

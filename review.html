@@ -45,8 +45,10 @@
   th:first-child, td:first-child { text-align: left; }
   th { color: var(--muted); font-weight: 500; }
   tr.cleared td { color: var(--muted); text-decoration: line-through; }
-  .legend { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
-  .legend i { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #2f55d4, #9b4dca, #f76707); }
+  .legend { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+  .legend .ramp { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #2f55d4, #9b4dca, #f76707); }
+  .legend .key { display: flex; align-items: center; gap: 5px; color: var(--ink); }
+  .legend .key i { width: 12px; height: 12px; border-radius: 3px; }
   .seg { display: flex; background: rgba(0,0,0,.05); border-radius: 10px; padding: 3px; }
   .seg button { flex: 1; padding: 6px 8px; font-size: 13px; border-radius: 8px; background: none; color: var(--muted); }
   .seg button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -61,8 +63,12 @@
   .card canvas { display: block; width: 100%; aspect-ratio: 4 / 3; }
   .cap { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 8px 12px; border-top: 1px solid #f0efea; font-size: 13px; }
   .cap span { color: var(--muted); }
-  .card.ai-frames .cap, .card.ai-text .cap { background: #f7f4ff; }
-  .ai-tag { font-style: normal; background: #ece7ff; color: #5b3fc4; border-radius: 5px; padding: 1px 5px; letter-spacing: 0; }
+  .card.ai-frames { background: #faf8ff; }
+  .card.ai-text { background: #fff9f4; }
+  .card.ai-frames .cap b { color: #6d4bd4; }
+  .card.ai-text .cap b { color: #c2410c; }
+  .card.human .cap b { color: #0f766e; }
+  .ai-tag { font-style: normal; border-radius: 5px; padding: 1px 5px; letter-spacing: 0; }
   #sheet-view { flex-direction: column; gap: 14px; min-height: 0; flex: 1; }
   .sheet-grid {
     display: grid; grid-template-columns: 150px minmax(0, 1fr); grid-template-rows: 30px minmax(0, 1fr);
@@ -116,7 +122,7 @@
       <label><input type="checkbox" id="by-speed" checked> Colour by speed</label>
       <label><input type="checkbox" id="ghost" checked> Ghost of full drawing</label>
       <label><input type="checkbox" id="show-cleared"> Show cleared &amp; palm strokes</label>
-      <span class="legend"><span>slow</span><i></i><span>fast</span></span>
+      <span class="legend"><span>slow</span><i class="ramp"></i><span>fast</span></span>
     </div>
     <div class="chart-wrap"><canvas id="chart"></canvas></div>
     <p id="groups" style="margin:0;color:#48484a"></p>
@@ -131,7 +137,8 @@
         <label>Show <select id="c-who"><option value="all">Everyone</option></select></label>
         <label>Speed <select id="c-rate"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
         <label><input type="checkbox" id="c-fit" checked> Zoom each drawing to fit</label>
-        <label><input type="checkbox" id="c-by-speed" checked> Colour by speed <span class="legend"><i></i></span></label>
+        <label>Colour by <select id="c-color"><option value="who" selected>Who drew it</option><option value="speed">Speed</option><option value="plain">Nothing</option></select></label>
+      <span class="legend" id="c-legend"></span>
         <p>Play all starts every entry from its first stroke, so timing compares side by side. Speed colours use one scale across all entries. Click an entry to open it.</p>
       </div>
     </div>
@@ -150,7 +157,8 @@
         <button class="secondary" id="m-fit" title="Fit everything (0)">Fit all</button>
       </span>
       <label><input type="checkbox" id="m-fit-draw" checked> Zoom each drawing to fit</label>
-      <label><input type="checkbox" id="m-by-speed" checked> Colour by speed <span class="legend"><i></i></span></label>
+      <label>Colour by <select id="m-color"><option value="who" selected>Who drew it</option><option value="speed">Speed</option><option value="plain">Nothing</option></select></label>
+      <span class="legend" id="m-legend"></span>
     </div>
     <div class="sheet-grid">
       <div class="sheet-corner"></div>
