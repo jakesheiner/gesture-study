@@ -2,6 +2,7 @@
 data/
 gesture-*.json
 ai/responses/
+ai/quarantine/
 
 # kept private
 gesture-elicitation-webapp-spec.md
