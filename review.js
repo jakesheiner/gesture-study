@@ -38,6 +38,7 @@ function renderList() {
   for (const b of document.querySelectorAll('.seg button')) b.classList.toggle('on', b.dataset.mode === mode);
   const list = $('#list');
   list.innerHTML = '';
+  if (mode === 'sheet') { openSheet(); return renderSheetList(list); }
   if (mode === 'clip') return renderClipList(list);
   const sorted = [...sessions.values()].sort((a, b) =>
     (isAI(a.session) - isAI(b.session)) || a.session.started_at.localeCompare(b.session.started_at));
@@ -121,8 +122,10 @@ function speedColor(v, vmax) {
 
 function showView(id) {
   $('#empty').hidden = true;
-  for (const v of ['#viewer', '#clip-view']) $(v).style.display = v === id ? 'contents' : 'none';
+  for (const v of ['#viewer', '#clip-view', '#sheet-view'])
+    $(v).style.display = v === id ? (v === '#sheet-view' ? 'flex' : 'contents') : 'none';
   if (id !== '#clip-view') { cPause(); clipPlayer.stop(); }
+  if (id !== '#sheet-view') mPause();
 }
 
 // ---------- open a trial ----------
@@ -219,7 +222,8 @@ function drawStrokes() {
 
 // Draws strokes into a canvas. localTime(stroke) = ms into that stroke to draw up to (Infinity = all of it).
 // fit: zoom to the drawing's own bounds instead of showing the participant's whole canvas.
-function renderDrawing(ctx, r, strokes, localTime, { box, fit = false, vmax, bySpeed, ghost, pad = 16, tip = true }) {
+function renderDrawing(ctx, r, strokes, localTime, { box, fit = false, vmax, bySpeed, ghost, pad = 16, tip = true, clear = true, frame = true }) {
+  const rx = r.x ?? 0, ry = r.y ?? 0;
   let bx = 0, by = 0, bw = box.w, bh = box.h;
   if (fit) {
     const pts = strokes.flatMap(st => st.points);
@@ -231,14 +235,14 @@ function renderDrawing(ctx, r, strokes, localTime, { box, fit = false, vmax, byS
     }
   }
   const s = Math.min((r.width - 2 * pad) / bw, (r.height - 2 * pad) / bh);
-  const ox = (r.width - bw * s) / 2 - bx * s, oy = (r.height - bh * s) / 2 - by * s;
+  const ox = rx + (r.width - bw * s) / 2 - bx * s, oy = ry + (r.height - bh * s) / 2 - by * s;
   const X = x => ox + x * s, Y = y => oy + y * s;
   const lw = Math.max(.6, Math.min(1.5, s));
   const width = p => (p.pointerType === 'pen' ? 1.5 + p.pressure * 5 : 3.5) * lw;
 
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  ctx.clearRect(0, 0, r.width, r.height);
-  if (!fit) {   // the participant's canvas
+  if (clear) ctx.clearRect(rx, ry, r.width, r.height);
+  if (!fit && frame) {   // the participant's canvas
     ctx.strokeStyle = '#ecebe6';
     ctx.lineWidth = 1;
     ctx.strokeRect(X(0), Y(0), box.w * s, box.h * s);
@@ -448,4 +452,167 @@ function cTick(now) {
 $('#c-play').onclick = () => {
   if (cPlaying) { cPause(); ct = Infinity; renderCards(); } else cPlay();
 };
+
+// ---------- contact sheet: every clip against every participant, on one canvas ----------
+
+const CELL = { s: [130, 90], m: [190, 130], l: [260, 180] };
+const HEAD = { w: 150, h: 30 }, GAP = 6;
+const sheet = $('#sheet'), sctx = sheet.getContext('2d');
+const topHead = $('#sheet-top'), tctx = topHead.getContext('2d');
+const leftHead = $('#sheet-left'), lctx = leftHead.getContext('2d');
+let M = null;                 // { cols, rows, cells, vmax, cw, ch, duration }
+let mt = Infinity, mPlaying = false, mLast = 0;
+
+function renderSheetList(list) {
+  const el = document.createElement('div');
+  el.className = 'sess';
+  el.innerHTML = `<h2>Jump to clip</h2>`;
+  for (const clip of CLIPS.filter(c => M?.rows.some(r => r.id === c.id))) {
+    const b = document.createElement('button');
+    b.className = 'trial-btn';
+    b.innerHTML = `<span>${esc(clip.label)}</span>`;
+    b.onclick = () => {
+      const i = M.rows.findIndex(r => r.id === clip.id);
+      $('#sheet-scroll').scrollTo({ top: i * (M.ch + GAP), behavior: 'smooth' });
+    };
+    el.append(b);
+  }
+  list.append(el);
+}
+
+function openSheet() {
+  const pick = $('#m-who').value;
+  const cols = [...sessions.values()]
+    .sort((a, b) => (isAI(a.session) - isAI(b.session)) || a.session.subject.localeCompare(b.session.subject))
+    .filter(s => pick === 'all' || who(s.session) === pick)
+    .map(({ session, trials }) => ({ session, label: session.subject, kind: who(session), trials }));
+
+  const rows = CLIPS
+    .filter(c => cols.some(col => col.trials.some(t => t.clip_id === c.id)))
+    .map(c => ({ id: c.id, label: c.label, block: c.block }));
+
+  const cells = [];
+  for (const [ri, row] of rows.entries()) {
+    for (const [ci, col] of cols.entries()) {
+      const trial = col.trials.find(t => t.clip_id === row.id);
+      if (!trial) continue;
+      const strokes = trial.strokes.filter(st => !off(st)).map(withSpeed);
+      if (!strokes.length) continue;
+      const first = Math.min(...strokes.map(st => st.start_ms));
+      cells.push({
+        ri, ci, session: col.session, trial, strokes, first,
+        span: Math.max(...strokes.map(st => st.end_ms ?? st.start_ms)) - first,
+        box: strokes[0]?.canvas ?? { w: 800, h: 600 },
+      });
+    }
+  }
+  const speeds = cells.flatMap(c => c.strokes.flatMap(st => st.speed)).sort((a, b) => a - b);
+  const [cw, ch] = CELL[$('#m-size').value] ?? CELL.m;
+  M = { cols, rows, cells, cw, ch, vmax: speeds[Math.floor(speeds.length * .95)] || 1, duration: Math.max(0, ...cells.map(c => c.span)) };
+
+  const kinds = [...new Set([...sessions.values()].map(s => who(s.session)))];
+  if ($('#m-who').options.length !== kinds.length + 1) {
+    $('#m-who').innerHTML = `<option value="all">Everyone</option>` +
+      kinds.map(k => `<option value="${k}">${WHO_LABEL[k] ?? k} only</option>`).join('');
+  }
+  $('#m-meta').textContent = `${rows.length} clips × ${cols.length} participants · ${cells.length} trials`;
+
+  showView('#sheet-view');
+  sizeSheet();
+}
+
+function sizeSheet() {
+  if (!M) return;
+  const W = M.cols.length * (M.cw + GAP), H = M.rows.length * (M.ch + GAP);
+  for (const [c, w, h] of [[sheet, W, H], [topHead, W, HEAD.h], [leftHead, HEAD.w, H]]) {
+    c.style.width = w + 'px'; c.style.height = h + 'px';
+    c.width = Math.round(w * devicePixelRatio); c.height = Math.round(h * devicePixelRatio);
+  }
+  drawSheet();
+}
+
+function drawSheet() {
+  if (!M) return;
+  const { cw, ch } = M;
+  sctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  sctx.clearRect(0, 0, sheet.width, sheet.height);
+
+  // cell backgrounds, so a participant who skipped a clip reads as a gap
+  for (const ri of M.rows.keys()) {
+    for (const [ci, col] of M.cols.entries()) {
+      sctx.fillStyle = col.kind === 'human' ? '#fff' : '#fbfaff';
+      sctx.fillRect(ci * (cw + GAP), ri * (ch + GAP), cw, ch);
+    }
+  }
+  const opts = { fit: $('#m-fit').checked, bySpeed: $('#m-by-speed').checked, vmax: M.vmax, pad: 10, clear: false, frame: false };
+  for (const c of M.cells) {
+    renderDrawing(sctx, { x: c.ci * (cw + GAP), y: c.ri * (ch + GAP), width: cw, height: ch },
+      c.strokes, st => mt - (st.start_ms - c.first), { ...opts, box: c.box });
+  }
+
+  tctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  tctx.clearRect(0, 0, topHead.width, topHead.height);
+  tctx.font = '600 12px -apple-system, sans-serif';
+  tctx.textBaseline = 'middle';
+  for (const [ci, col] of M.cols.entries()) {
+    tctx.fillStyle = col.kind === 'human' ? '#1d1d1f' : '#5b3fc4';
+    tctx.fillText(col.label, ci * (cw + GAP) + 4, HEAD.h / 2, cw - 8);
+  }
+
+  lctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  lctx.clearRect(0, 0, leftHead.width, leftHead.height);
+  lctx.font = '500 12px -apple-system, sans-serif';
+  lctx.fillStyle = '#1d1d1f';
+  lctx.textBaseline = 'middle';
+  for (const [ri, row] of M.rows.entries()) {
+    const y = ri * (ch + GAP) + ch / 2;
+    const lines = [];
+    let line = '';
+    for (const w of row.label.split(' ')) {
+      if (line && lctx.measureText(`${line} ${w}`).width > HEAD.w - 16) { lines.push(line); line = w; }
+      else line = line ? `${line} ${w}` : w;
+    }
+    lines.push(line);
+    lines.forEach((l, i) => lctx.fillText(l, 8, y + (i - (lines.length - 1) / 2) * 15));
+  }
+  $('#m-time').textContent = mt === Infinity ? '' : `${(Math.min(mt, M.duration) / 1000).toFixed(2)} s`;
+}
+
+$('#sheet-scroll').addEventListener('scroll', e => {
+  $('#sheet-top-wrap').scrollLeft = e.target.scrollLeft;
+  $('#sheet-left-wrap').scrollTop = e.target.scrollTop;
+});
+sheet.addEventListener('click', e => {
+  if (!M) return;
+  const r = sheet.getBoundingClientRect();
+  const ci = Math.floor((e.clientX - r.left) / (M.cw + GAP)), ri = Math.floor((e.clientY - r.top) / (M.ch + GAP));
+  const cell = M.cells.find(c => c.ci === ci && c.ri === ri);
+  if (!cell) return;
+  mode = 'participant';
+  renderList();
+  const b = $(`[data-trial="${cell.trial.trial_id}"]`);
+  if (b) { select(b); b.scrollIntoView({ block: 'nearest' }); }
+  open(cell.session, cell.trial);
+});
+for (const id of ['#m-fit', '#m-by-speed']) $(id).onchange = drawSheet;
+for (const id of ['#m-size', '#m-who']) $(id).onchange = () => { openSheet(); renderList(); };
+
+// Play all: every cell runs at once, each from its own first stroke.
+function mPause() { mPlaying = false; $('#m-play').textContent = 'Play all'; }
+function mTick(now) {
+  if (!mPlaying) return;
+  mt += (now - mLast);
+  mLast = now;
+  if (mt >= M.duration + 400) { mt = Infinity; drawSheet(); return mPause(); }
+  drawSheet();
+  requestAnimationFrame(mTick);
+}
+$('#m-play').onclick = () => {
+  if (mPlaying) { mPause(); mt = Infinity; drawSheet(); return; }
+  mPlaying = true; mt = 0; mLast = performance.now();
+  $('#m-play').textContent = 'Stop';
+  requestAnimationFrame(mTick);
+};
+addEventListener('resize', () => { if (M && $('#sheet-view').style.display !== 'none') sizeSheet(); });
+
 })();

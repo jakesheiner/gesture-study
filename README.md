@@ -67,6 +67,8 @@ Load one or more exports (or drag them in), then pick a trial. The clip on the l
 
 Switch the sidebar to **By clip** to see every participant's entry for one clip in a grid next to the looping clip. **Play all** replays every entry at once, each starting from its own first stroke, so you can compare timing side by side. Speed colours use one scale across all entries. **Zoom each drawing to fit** compares shape regardless of how big or where on the canvas each person drew. Click an entry to open it in the single-trial view.
 
+The **All** tab is a contact sheet of the whole study on one scrollable canvas: clips down the side, participants across the top, one thumbnail per trial. Clip names and participant names stay pinned while you scroll. **Play all** runs every trial at once, each from its own first stroke, so a whole column or row can be compared at a glance. Cells can be small, medium or large, the **Show** menu filters people against either AI condition, and clicking any cell opens that trial in the single-trial view. Gaps mean that participant has no entry for that clip.
+
 Speed is smoothed over a ±12 ms window. Anything derived from it, acceleration especially, should be recomputed with proper filtering for analysis.
 
 ## AI participants

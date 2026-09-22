@@ -63,7 +63,19 @@
   .cap span { color: var(--muted); }
   .card.ai-frames .cap, .card.ai-text .cap { background: #f7f4ff; }
   .ai-tag { font-style: normal; background: #ece7ff; color: #5b3fc4; border-radius: 5px; padding: 1px 5px; letter-spacing: 0; }
+  #sheet-view { flex-direction: column; gap: 14px; min-height: 0; flex: 1; }
+  .sheet-grid {
+    display: grid; grid-template-columns: 150px minmax(0, 1fr); grid-template-rows: 30px minmax(0, 1fr);
+    flex: 1; min-height: 320px; background: #efeee9; border-radius: 14px; overflow: hidden;
+  }
+  .sheet-corner { background: var(--bg); }
+  .sheet-head-top, .sheet-head-left { overflow: hidden; background: var(--bg); }
+  .sheet-head-top canvas { display: block; }
+  .sheet-head-left canvas { display: block; }
+  .sheet-scroll { overflow: auto; }
+  .sheet-scroll canvas { display: block; cursor: pointer; }
   @media (max-width: 900px) {
+    #sheet-view { min-height: 70vh; }
     .clip-top { grid-template-columns: 1fr; height: auto; }
     .clip-top .stage-wrap { aspect-ratio: 16 / 9; }
     body { display: block; height: auto; overflow: auto; }
@@ -76,7 +88,7 @@
 <body>
 <aside>
   <h1>Gesture review</h1>
-  <div class="seg"><button data-mode="participant" class="on">By participant</button><button data-mode="clip">By clip</button></div>
+  <div class="seg"><button data-mode="participant" class="on">Participant</button><button data-mode="clip">Clip</button><button data-mode="sheet">All</button></div>
   <label class="load">Load export JSON…<input type="file" id="files" accept=".json,application/json" multiple></label>
   <div id="list"></div>
 </aside>
@@ -119,6 +131,22 @@
       </div>
     </div>
     <div class="grid" id="c-grid"></div>
+  </div>
+  <div id="sheet-view" style="display:none">
+    <div class="head"><h2>Every trial</h2><span id="m-meta"></span></div>
+    <div class="opts">
+      <button id="m-play">Play all</button><span class="time" id="m-time"></span>
+      <label>Show <select id="m-who"><option value="all">Everyone</option></select></label>
+      <label>Size <select id="m-size"><option value="s">Small</option><option value="m" selected>Medium</option><option value="l">Large</option></select></label>
+      <label><input type="checkbox" id="m-fit" checked> Zoom each drawing to fit</label>
+      <label><input type="checkbox" id="m-by-speed" checked> Colour by speed <span class="legend"><i></i></span></label>
+    </div>
+    <div class="sheet-grid">
+      <div class="sheet-corner"></div>
+      <div id="sheet-top-wrap" class="sheet-head-top"><canvas id="sheet-top"></canvas></div>
+      <div id="sheet-left-wrap" class="sheet-head-left"><canvas id="sheet-left"></canvas></div>
+      <div id="sheet-scroll" class="sheet-scroll"><canvas id="sheet"></canvas></div>
+    </div>
   </div>
 </main>
 <script src="clips.js"></script>
