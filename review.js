@@ -221,7 +221,7 @@ const draw = $('#draw'), dctx = draw.getContext('2d');
 const chart = $('#chart'), cctx = chart.getContext('2d');
 
 function sizeCanvas(c) {
-  const r = c.getBoundingClientRect();
+  const r = sizeOf(c);
   c.width = Math.round(r.width * devicePixelRatio);
   c.height = Math.round(r.height * devicePixelRatio);
   return r;
@@ -229,8 +229,10 @@ function sizeCanvas(c) {
 function layoutCanvases() { if (cur) { sizeCanvas(draw); sizeCanvas(chart); seek(t); } }
 new ResizeObserver(layoutCanvases).observe($('#draw-wrap'));
 
+const sizeOf = el => { const b = el.getBoundingClientRect(); return { width: b.width, height: b.height }; };
+
 function drawStrokes() {
-  renderDrawing(dctx, draw.getBoundingClientRect(), cur.strokes.filter(st => $('#show-cleared').checked || !off(st)), st => t - st.start_ms, {
+  renderDrawing(dctx, sizeOf(draw), cur.strokes.filter(st => $('#show-cleared').checked || !off(st)), st => t - st.start_ms, {
     box: cur.box, vmax: cur.vmax, bySpeed: $('#by-speed').checked, color: WHO_COLOR[cur.who] ?? '#1d1d1f',
     ghost: $('#ghost').checked, pad: 20,
   });
@@ -291,7 +293,7 @@ function renderDrawing(ctx, r, strokes, localTime, { box, fit = false, vmax, byS
 
 // Speed over trial time, with clip loop starts marked so stroke timing can be read against the clip.
 function drawChart() {
-  const r = chart.getBoundingClientRect();
+  const r = sizeOf(chart);
   cctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   cctx.clearRect(0, 0, r.width, r.height);
   const pad = { l: 52, r: 14, t: 14, b: 22 };
